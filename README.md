@@ -22,6 +22,66 @@ or you can run this shell script `./create_virtual_env.sh` to make an environmen
 
 
 ### Installation
-```
+```bash
 pip install prometheus-client
+```
+
+### Custom Promethues Exporter
+- Expose my metrics for dev kafka cluster to http://localhost:9115
+```bash
+# HELP python_gc_objects_collected_total Objects collected during gc
+# TYPE python_gc_objects_collected_total counter
+python_gc_objects_collected_total{generation="0"} 302.0
+python_gc_objects_collected_total{generation="1"} 342.0
+python_gc_objects_collected_total{generation="2"} 0.0
+# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
+# TYPE python_gc_objects_uncollectable_total counter
+python_gc_objects_uncollectable_total{generation="0"} 0.0
+python_gc_objects_uncollectable_total{generation="1"} 0.0
+python_gc_objects_uncollectable_total{generation="2"} 0.0
+# HELP python_gc_collections_total Number of times this generation was collected
+# TYPE python_gc_collections_total counter
+python_gc_collections_total{generation="0"} 53.0
+python_gc_collections_total{generation="1"} 4.0
+python_gc_collections_total{generation="2"} 0.0
+# HELP python_info Python platform information
+# TYPE python_info gauge
+python_info{implementation="CPython",major="3",minor="11",patchlevel="7",version="3.11.7"} 1.0
+# HELP hitl_psql_health_status PSQL connection health
+# TYPE hitl_psql_health_status gauge
+hitl_psql_health_status{hitl_psql_health_status="healthy"} 1.0
+hitl_psql_health_status{hitl_psql_health_status="unhealthy"} 0.0
+# HELP kafka_brokers the number of kafka brokers
+# TYPE kafka_brokers gauge
+kafka_brokers 2.0
+# HELP hitl_psql_health_request_time PSQL connection response time (seconds)
+# TYPE hitl_psql_health_request_time histogram
+hitl_psql_health_request_time_bucket{le="0.005"} 0.0
+hitl_psql_health_request_time_bucket{le="0.01"} 0.0
+hitl_psql_health_request_time_bucket{le="0.025"} 0.0
+hitl_psql_health_request_time_bucket{le="0.05"} 2.0
+hitl_psql_health_request_time_bucket{le="0.075"} 3.0
+hitl_psql_health_request_time_bucket{le="0.1"} 4.0
+hitl_psql_health_request_time_bucket{le="0.25"} 4.0
+hitl_psql_health_request_time_bucket{le="0.5"} 4.0
+hitl_psql_health_request_time_bucket{le="0.75"} 4.0
+hitl_psql_health_request_time_bucket{le="1.0"} 4.0
+hitl_psql_health_request_time_bucket{le="2.5"} 4.0
+hitl_psql_health_request_time_bucket{le="5.0"} 4.0
+hitl_psql_health_request_time_bucket{le="7.5"} 4.0
+hitl_psql_health_request_time_bucket{le="10.0"} 4.0
+hitl_psql_health_request_time_bucket{le="+Inf"} 4.0
+hitl_psql_health_request_time_count 4.0
+hitl_psql_health_request_time_sum 0.2218436000039219
+# HELP hitl_psql_health_request_time_created PSQL connection response time (seconds)
+# TYPE hitl_psql_health_request_time_created gauge
+hitl_psql_health_request_time_created 1.7159152249493546e+09
+```
+
+
+### Run Custom Promethues Exporter
+- Run this command : $ `python ./promethues_kafka_export.py`
+```bash
+$ python ./promethues_kafka_export.py 
+Server started.
 ```
