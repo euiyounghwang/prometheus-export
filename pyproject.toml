@@ -8,6 +8,9 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.9"
 prometheus-client = "^0.20.0"
+kafka-healthcheck = "^0.0.1"
+psutil = "^5.9.8"
+pytz = "^2024.1"
 
 
 [build-system]

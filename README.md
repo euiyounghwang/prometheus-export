@@ -1,4 +1,4 @@
-# python-prometheus-export
+# prometheus-export
 <i>python-prometheus-export
 
 Prometheus provides client libraries based on Python, Go, Ruby and others that we can use to generate metrics with the necessary labels. 
@@ -13,9 +13,16 @@ Metrics can be exposed through a standalone web server, or through Twisted, WSGI
 
 ### Using Poetry: Create the virtual environment in the same directory as the project and install the dependencies:
 ```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install poetry
+
+# --
 poetry config virtualenvs.in-project true
 poetry init
 poetry add prometheus-client
+poetry add psutil
+poetry add pytz
 ```
 or you can run this shell script `./create_virtual_env.sh` to make an environment. then go to virtual enviroment using `source .venv/bin/activate`
 
