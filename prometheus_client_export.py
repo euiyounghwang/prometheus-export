@@ -143,7 +143,7 @@ def work(port, interval, host, urls):
 
 if __name__ == '__main__':
     '''
-    ././es-service-all-client-export.sh status/stop/start
+    ./es-service-all-client-export.sh status/stop/start
     python ./promethues_client_export.py
     python ./prometheus_client_export.py --host localhost --url "http://localhost:9999/health?kafka_url=localhost:29092,localhost:39092,localhost:49092&es_url=localhost:9200,localhost:9501,localhost:9503"
     '''

@@ -58,9 +58,6 @@ python_info{implementation="CPython",major="3",minor="11",patchlevel="7",version
 # TYPE hitl_psql_health_status gauge
 hitl_psql_health_status{hitl_psql_health_status="healthy"} 1.0
 hitl_psql_health_status{hitl_psql_health_status="unhealthy"} 0.0
-# HELP kafka_brokers the number of kafka brokers
-# TYPE kafka_brokers gauge
-kafka_brokers 2.0
 # HELP hitl_psql_health_request_time PSQL connection response time (seconds)
 # TYPE hitl_psql_health_request_time histogram
 hitl_psql_health_request_time_bucket{le="0.005"} 0.0
@@ -83,12 +80,36 @@ hitl_psql_health_request_time_sum 0.2218436000039219
 # HELP hitl_psql_health_request_time_created PSQL connection response time (seconds)
 # TYPE hitl_psql_health_request_time_created gauge
 hitl_psql_health_request_time_created 1.7159152249493546e+09
+# HELP es_health_metric Metrics scraped from localhost
+# TYPE es_health_metric gauge
+es_health_metric{server_job="localhost"} 4.0
+# HELP kafka_health_metric Metrics scraped from localhost
+# TYPE kafka_health_metric gauge
+kafka_health_metric{server_job="localhost"} 3.0
+# HELP kibana_health_metric Metrics scraped from localhost
+# TYPE kibana_health_metric gauge
+kibana_health_metric{server_job="localhost"} 1.0
+# HELP logstash_health_metric Metrics scraped from localhost
+# TYPE logstash_health_metric gauge
+logstash_health_metric{server_job="localhost"} 1.0
 ```
 
 
 ### Run Custom Promethues Exporter
 - Run this command : $ `python ./promethues_kafka_export.py`
 ```bash
-$ python ./promethues_kafka_export.py 
+
+# HTTP Server
+$  ./es-service-all-server-export-run.sh status/start/stop or ./server-export-run.sh
 Server started.
+
+# Client export
+$  ./es-service-all-client-export-run.sh status/start/stop or ./client-export-run.sh
+
+...
+[2024-05-20 20:44:06] [INFO] [prometheus_client_export] [work] http://localhost:9999/health?kafka_url=localhost:9092,localhost:9092,localhost:9092&es_url=localhost:9200,localhost:9200,localhost:9200,localhost:9200&kibana_url=localhost:5601&logstash_url=process
+[2024-05-20 20:44:06] [INFO] [prometheus_client_export] [get_metrics_all_envs] 200
+[2024-05-20 20:44:06] [INFO] [prometheus_client_export] [get_metrics_all_envs] <Response [200]>
+[2024-05-20 20:44:06] [INFO] [prometheus_client_export] [get_metrics_all_envs] {'kafka_url': {'localhost:9092': 'OK', 'GREEN_CNT': 3, 'localhost:9092': 'OK', 'localhost:9092': 'OK'}, 'es_url': {'localhost:9200': 'OK', 'GREEN_CNT': 4, 'localhost:9200': 'OK', 'localhost:9200': 'OK', 'localhost:9200': 'OK'}, 'kibana_url': {'localhost:5601': 'OK', 'GREEN_CNT': 1}, 'logstash_url': 1}
+...
 ```
