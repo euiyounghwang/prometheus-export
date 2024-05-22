@@ -47,9 +47,10 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
 
     def get_Process_Id(self):
+        process_name = "/logstash-"
         process_handler = ProcessHandler()
-        logging.info("Prcess - {}".format(process_handler.isProcessRunning("logstash")))
-        if process_handler.isProcessRunning("logstash"):
+        logging.info("Prcess - {}".format(process_handler.isProcessRunning(process_name)))
+        if process_handler.isProcessRunning(process_name):
             return 1
         return 0
 
@@ -81,7 +82,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 response_sub_dict = {}
 
                 totalcount = 0
-                logging.info("url_key ", url_key)
+                # logging.info("url_key ", url_key)
                 # if urls[1]:
                 if url_key == "logstash_url":
                     response_dict.update({url_key : self.get_Process_Id()})

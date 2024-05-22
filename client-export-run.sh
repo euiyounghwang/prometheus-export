@@ -15,5 +15,7 @@ else
     source $VENV/Scripts/activate
 fi
 
-python ./prometheus_client_export.py --host localhost --url http://{}:9999/health?kafka_url=localhost:29092,localhost:39092,localhost:49092"&"es_url=localhost:9200,localhost:9501,localhost:9503"&"kibana_url=localhost:5601"&"logstash_url=process
-    
+# -- server/clinet based on HTTP
+#python ./prometheus_client_export.py --host localhost --url http://{}:9999/health?kafka_url=localhost:29092,localhost:39092,localhost:49092"&"es_url=localhost:9200,localhost:9501,localhost:9503"&"kibana_url=localhost:5601"&"logstash_url=process
+# -- logstash : Get the process from local instance
+python ./prometheus_client_export.py --host localhost --url http://{}:9999/health?kafka_url=localhost:29092,localhost:39092,localhost:49092"&"es_url=localhost:9200,localhost:9501,localhost:9503"&"kibana_url=localhost:5601

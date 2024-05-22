@@ -15,6 +15,7 @@ from threading import Thread
 import logging
 import socket
 from config.log_config import create_log
+import subprocess
 
 # logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -33,6 +34,22 @@ es_nodes_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', [
 kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kibana_instance_gauge_g = Gauge("kibana_health_metric", 'Metrics scraped from localhost', ["server_job"])
 logstash_instance_gauge_g = Gauge("logstash_health_metric", 'Metrics scraped from localhost', ["server_job"])
+
+
+class ProcessHandler():
+    ''' Get the process by the processname'''
+
+    def __init__(self) -> None:
+        pass
+
+    def isProcessRunning(self, name):
+        ''' Get PID with process name'''
+        try:
+            call = subprocess.check_output("pgrep -f '{}'".format(name), shell=True)
+            logging.info("Process IDs - {}".format(call.decode("utf-8")))
+            return True
+        except subprocess.CalledProcessError:
+            return False
 
 
 def transform_prometheus_txt_to_Json(response):
@@ -65,6 +82,15 @@ def get_server_health(host):
 
 def get_metrics_all_envs(host, urls):
     ''' get metrics from custom export for the health of kafka cluster'''
+    
+    def get_Process_Id():
+        process_name = "/logstash-"
+        process_handler = ProcessHandler()
+        logging.info("Prcess - {}".format(process_handler.isProcessRunning(process_name)))
+        if process_handler.isProcessRunning(process_name):
+            return 1
+        return 0
+    
     # logging.info("Test")
     with hitl_server_health_request_time.time():
         resp = requests.get(url=urls)
@@ -87,7 +113,9 @@ def get_metrics_all_envs(host, urls):
         kafka_nodes_gauge_g.labels(socket.gethostname()).set(int(resp.json()["kafka_url"]["GREEN_CNT"]))
         es_nodes_gauge_g.labels(socket.gethostname()).set(int(resp.json()["es_url"]["GREEN_CNT"]))
         kibana_instance_gauge_g.labels(socket.gethostname()).set(int(resp.json()["kibana_url"]["GREEN_CNT"]))
-        logstash_instance_gauge_g.labels(socket.gethostname()).set(int(resp.json()["logstash_url"]))
+        # logstash_instance_gauge_g.labels(socket.gethostname()).set(int(resp.json()["logstash_url"]))
+        # -- local instance based
+        logstash_instance_gauge_g.labels(socket.gethostname()).set(int(get_Process_Id()))
         
                         
 
@@ -124,7 +152,7 @@ def work(port, interval, host, urls):
             time.sleep(interval)
 
         '''
-        for each_host in ['localhost', 'tsgvm00875']:
+        for each_host in ['localhost', 'localhost']:
             while True:
                 urls = urls.format(each_host)
                 logging.info(urls)
@@ -148,7 +176,7 @@ if __name__ == '__main__':
     python ./prometheus_client_export.py --host localhost --url "http://localhost:9999/health?kafka_url=localhost:29092,localhost:39092,localhost:49092&es_url=localhost:9200,localhost:9501,localhost:9503"
     '''
     parser = argparse.ArgumentParser(description="Script that might allow us to use it as an application of custom prometheus exporter")
-    parser.add_argument('--host', dest='host', default="localhost", help='Server host')
+    parser.add_argument('-t','--host', dest='host', default="localhost", help='Server host')
     parser.add_argument('-u', '--url', dest='url', default="http://{}:9999/health?kafka_url=localhost:29092,localhost:39092,localhost:49092&es_url=localhost:9200,localhost:9501,localhost:9503", help='Server URL')
     parser.add_argument('-p', '--port', dest='port', default=9115, help='Expose Port')
     parser.add_argument('-i', '--interval', dest='interval', default=5, help='Interval')
