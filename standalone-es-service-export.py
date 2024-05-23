@@ -17,6 +17,7 @@ import socket
 from config.log_config import create_log
 import subprocess
 import json
+import copy
 
 # logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -31,13 +32,15 @@ hitl_server_health_request_time = Histogram('hitl_server_health_request_time', '
 kafka_brokers_gauge = Gauge("kafka_brokers", "the number of kafka brokers")
 
 ''' gauge with dict type'''
-es_nodes_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
+es_nodes_gauge_g = Gauge("es_node_metric", 'Metrics scraped from localhost', ["server_job"])
+es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localhost', ["server_job"])
-kafka_connect_nodes_gauge_g = Gauge("kafka_connect_health_metric", 'Metrics scraped from localhost', ["server_job"])
+kafka_connect_nodes_gauge_g = Gauge("kafka_connect_nodes_metric", 'Metrics scraped from localhost', ["server_job"])
+kafka_connect_listeners_gauge_g = Gauge("kafka_connect_listeners_metric", 'Metrics scraped from localhost', ["server_job", "host", "name", "running"])
 zookeeper_nodes_gauge_g = Gauge("zookeeper_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kibana_instance_gauge_g = Gauge("kibana_health_metric", 'Metrics scraped from localhost', ["server_job"])
 logstash_instance_gauge_g = Gauge("logstash_health_metric", 'Metrics scraped from localhost', ["server_job"])
-spark_jobs_gauge_g = Gauge("spark_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "id", "cores", "memoryperslave", "activeapps"])
+spark_jobs_gauge_g = Gauge("spark_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "id", "cores", "memoryperslave", "submitdate", "duration", "activeapps"])
 
 
 class ProcessHandler():
@@ -116,22 +119,110 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' 1) http://localhost:8083/connectors/  -> ["test_api",..]'''
         ''' 
             2) http://localhost:8083/connectors/test_api/status 
-            ->
-            {
-                "name": "test_api",
-                "connector": {
-                    "state": "RUNNING",
-                    "worker_id": "127.0.0.1:8083"
-                },
-                "tasks": [
+            -> 
+            "localhost" : [
                     {
-                    "state": "RUNNING",
-                    "id": 0,
-                    "worker_id": "127.0.0.1:8083"
+                        "name": "test_api",
+                        "connector": {
+                            "state": "RUNNING",
+                            "worker_id": "127.0.0.1:8083"
+                        },
+                        "tasks": [
+                            {
+                            "state": "RUNNING",
+                            "id": 0,
+                            "worker_id": "127.0.0.1:8083"
+                            }
+                        ]
                     }
-                ]
-            }
+              ]
         '''
+        try:
+            if not node_list_str:
+                return None
+            logging.info(f"get_kafka_connector_listeners - {node_list_str}")
+            
+            master_node = node_list_str.split(",")[0].split(":")[0]
+            logging.info(f"get_kafka_connector_listeners #1- {master_node}")
+
+            node_hosts = node_list_str.split(",")
+            nodes_list = [node.split(":")[0] for node in node_hosts]
+            
+            active_listner_list = {}
+            active_listner_connect = []
+            
+            for each_node in nodes_list:
+                # -- make a call to master node to get the information of activeapps
+                logging.info(each_node)
+                resp = requests.get(url="http://{}:8083/connectors".format(each_node), timeout=5)
+                    
+                # logging.info(f"activeapps - {resp}, {resp.status_code}, {resp.json()}")
+                logging.info(f"activeconnectors/listeners - {resp}, {resp.status_code}")
+                if not (resp.status_code == 200):
+                    continue
+                else:
+                #    active_listner_connect.update({each_node : resp.json()})
+                    active_listner_connect = resp.json()
+                    break
+            logging.info(f"active_listner_list - {json.dumps(active_listner_connect, indent=2)}")
+            
+            '''
+            # Master node
+            # -- make a call to master node to get the information of activeapps
+            resp = requests.get(url="http://{}:8083/connectors".format(master_node), timeout=5)
+            if not (resp.status_code == 200):
+                return None
+            else:
+                # logging.info("OK~@#")
+                active_listner_connect.update({master_node : resp.json()})
+            logging.info(f"active_listner_connect #1 - {json.dumps(active_listner_connect.get(master_node), indent=2)}")
+            '''
+
+            #-- with listeners_list
+            listener_apis_dict = {}
+            for node in nodes_list:
+                listener_apis_dict.update({node : {}})
+                listeners_list = []
+                for listener in active_listner_connect:
+                    try:
+                        # logging.info(f"listener_apis_dict make a call - {node} -> {listener}")
+                        resp_listener = requests.get(url="http://{}:8083/connectors/{}/status".format(node, listener), timeout=5)
+                        # logging.info(f"listeners - {resp_listener}, {resp_listener.json()}")
+                        listeners_list.append(resp_listener.json())
+                    except Exception as e:
+                        pass
+                listener_apis_dict.update({node : listeners_list})
+
+            # logging.info(f"listener_apis_dict - {json.dumps(listener_apis_dict, indent=2)}")
+            logging.info(f"listener_apis_dict - {listener_apis_dict}")
+            ''' result '''
+            '''
+            {
+                "localhost1": [{
+                    "test_jdbc": {
+                    "name": "test_jdbc",
+                    "connector": {
+                        "state": "RUNNING",
+                        "worker_id": "localhost:8083"
+                    },
+                    "tasks": [
+                        {
+                        "state": "RUNNING",
+                        "id": 0,
+                        "worker_id": "localhost:8083"
+                        }
+                    ]
+                    }
+                },
+                "localhost2": {},
+                "localhost3": {}
+            }]
+
+            '''
+            return listener_apis_dict
+            
+        except Exception as e:
+            logging.error(e)
 
 
     def get_spark_jobs(node):
@@ -146,7 +237,7 @@ def get_metrics_all_envs(monitoring_metrics):
             logging.info(f"get_spark_jobs #1- {master_node}")
 
             # -- make a call to master node to get the information of activeapps
-            resp = requests.get(url="http://{}:8080/json".format(master_node))
+            resp = requests.get(url="http://{}:8080/json".format(master_node), timeout=5)
             
             if not (resp.status_code == 200):
                 return None
@@ -173,28 +264,116 @@ def get_metrics_all_envs(monitoring_metrics):
         return 0
     
 
-    try:                        
-        response_dict = get_service_port_alive(monitoring_metrics)
+    def get_elasticsearch_health(monitoring_metrics):
+        ''' get cluster health '''
+        ''' return health json if one of nodes in cluster is acitve'''
+        try:
+            es_url_hosts = monitoring_metrics.get("es_url", "")
+            logging.info(f"get_elasticsearch_health hosts - {es_url_hosts}")
+            es_url_hosts_list = es_url_hosts.split(",")
+            
+            for each_es_host in es_url_hosts_list:
+                # -- make a call to node
+                resp = requests.get(url="http://{}/_cluster/health".format(each_es_host), timeout=5)
+                
+                if not (resp.status_code == 200):
+                    continue
+                
+                logging.info(f"activeES - {resp}, {resp.json()}")
+                return resp.json()
+                
+            return None
 
-        # -- Get spark jobs
-        response_spark_jobs = get_spark_jobs(monitoring_metrics.get("kafka_url", ""))
+        except Exception as e:
+            logging.error(e)
+
+
+    try:           
+         #-- es node cluster health
+        ''' http://localhost:9200/_cluster/health '''
+        
+        resp_es_health = get_elasticsearch_health(monitoring_metrics)
+        if resp_es_health:
+            ''' get es nodes from _cluster/health api'''
+            es_nodes_gauge_g.labels(socket.gethostname()).set(int(resp_es_health['number_of_nodes']))
+            if resp_es_health['status'] == 'green':
+                es_nodes_health_gauge_g.labels(socket.gethostname()).set(2)
+            elif resp_es_health['status'] == 'yellow':
+                es_nodes_health_gauge_g.labels(socket.gethostname()).set(1)
+            else:
+                es_nodes_health_gauge_g.labels(socket.gethostname()).set(0)
+        else:
+            es_nodes_health_gauge_g.labels(socket.gethostname()).set(0)
+            es_nodes_gauge_g.labels(socket.gethostname()).set(0)
+        #--
+
+        ''' check nodes on all kibana/kafka/connect except es nodes by using socket '''
+        monitoring_metrics_cp = copy.deepcopy(monitoring_metrics)
+        del monitoring_metrics_cp["es_url"]
+        logging.info("monitoring_metrics_cp - {}".format(json.dumps(monitoring_metrics_cp, indent=2)))
+        response_dict = get_service_port_alive(monitoring_metrics_cp)
 
         kafka_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["kafka_url"]["GREEN_CNT"]))
         kafka_connect_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["kafka_connect_url"]["GREEN_CNT"]))
         zookeeper_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["zookeeper_url"]["GREEN_CNT"]))
-        es_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["es_url"]["GREEN_CNT"]))
+        
+        ''' get es nodes from _cluster/health api'''
+        # es_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["es_url"]["GREEN_CNT"]))
         kibana_instance_gauge_g.labels(socket.gethostname()).set(int(response_dict["kibana_url"]["GREEN_CNT"]))
+
+        # -- Get spark jobs
+        response_spark_jobs = get_spark_jobs(monitoring_metrics.get("kafka_url", ""))
+
+        spark_jobs_gauge_g._metrics.clear()
+        if response_spark_jobs: 
+            # spark_jobs_gauge_g
+            for each_job in response_spark_jobs:
+                duration = str(round(float(each_job["duration"])/(60.0*60.0*1000.0),2)) + " h"
+                # logging.info(duration)
+                for k, v in each_job.items():
+                    if k  == 'state':
+                        if v.upper() == 'RUNNING':
+                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job["id"], cores=each_job['cores'], memoryperslave=each_job["memoryperslave"], submitdate=each_job["submitdate"], duration=duration, activeapps=each_job['name']).set(1)
+                        else:
+                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job["id"], cores=each_job['cores'], memoryperslave=each_job["memoryperslave"], submitdate=each_job["submitdate"], duration=duration, activeapps=each_job['name']).set(0)
+                    
         
-        # spark_jobs_gauge_g
-        for each_job in response_spark_jobs:
-            for k, v in each_job.items():
-                if k  == 'state':
-                    if v.upper() == 'RUNNING':
-                        spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job["id"], cores=each_job['cores'], memoryperslave=each_job["memoryperslave"], activeapps=each_job['name']).set(1)
+        # -- Get connect listeners
+        '''
+            {
+                "localhost1": [
+                  {
+                    "name": "test_jdbc",
+                    "connector": {
+                        "state": "RUNNING",
+                        "worker_id": "localhost:8083"
+                    },
+                    "tasks": [
+                        {
+                        "state": "RUNNING",
+                        "id": 0,
+                        "worker_id": "localhost:8083"
+                        }
+                    ]
+                  }
+                ],
+                "localhost2": {},
+                "localhost3": {}
+            }
+        '''
+        response_listeners = get_kafka_connector_listeners(monitoring_metrics.get("kafka_url", ""))
+        kafka_connect_listeners_gauge_g._metrics.clear()
+        if response_listeners: 
+            for host in response_listeners.keys():
+                for element in response_listeners[host]:
+                    if 'error_code' in element:
+                        continue
                     else:
-                        spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job["id"], cores=each_job['cores'], memoryperslave=each_job["memoryperslave"], activeapps=each_job['name']).set(0)
-                
-        
+                        if element['tasks'][0]['state'].upper() == 'RUNNING':
+                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element['name'], running=element['tasks'][0]['state']).set(1)
+                        else:
+                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element['name'], running=element['tasks'][0]['state']).set(0)
+
         # -- local instance based
         logstash_instance_gauge_g.labels(socket.gethostname()).set(int(get_Process_Id()))
 
@@ -262,7 +441,7 @@ if __name__ == '__main__':
     parser.add_argument('--es_url', dest='es_url', default="localhost:9200,localhost:9501,localhost:9503", help='es hosts')
     parser.add_argument('--kibana_url', dest='kibana_url', default="localhost:5601,localhost:15601", help='kibana hosts')
     parser.add_argument('--port', dest='port', default=9115, help='Expose Port')
-    parser.add_argument('--interval', dest='interval', default=10, help='Interval')
+    parser.add_argument('--interval', dest='interval', default=30, help='Interval')
     args = parser.parse_args()
 
     if args.kafka_url:
@@ -296,6 +475,7 @@ if __name__ == '__main__':
     }
 
     logging.info(json.dumps(monitoring_metrics, indent=2))
+    logging.info(interval)
 
     work(int(port), int(interval), monitoring_metrics)
     '''

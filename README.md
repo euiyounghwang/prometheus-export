@@ -125,7 +125,7 @@ logstash_health_metric{server_job="localhost"} 1.0
 
 
 ### Run Custom Promethues Exporter
-- Run this command : $ `python ./promethues_kafka_export.py`
+- Run this command : $ `python ./standalone-es-service-export.py` or `./standalone-export-run.sh`
 ```bash
 
 #-- HTTP Server/Client Based
