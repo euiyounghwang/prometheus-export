@@ -67,63 +67,31 @@ pip install prometheus-client
 
 ### Custom Promethues Exporter
 - Expose my metrics for dev kafka cluster to http://localhost:9115
+- Interface with `DB Interface Export` (https://github.com/euiyounghwang/DB-Interface-Export) by using FastAPI Framework to get the records as metrics
 ```bash
 # HELP python_gc_objects_collected_total Objects collected during gc
 # TYPE python_gc_objects_collected_total counter
 python_gc_objects_collected_total{generation="0"} 302.0
 python_gc_objects_collected_total{generation="1"} 342.0
 python_gc_objects_collected_total{generation="2"} 0.0
-# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
-# TYPE python_gc_objects_uncollectable_total counter
-python_gc_objects_uncollectable_total{generation="0"} 0.0
-python_gc_objects_uncollectable_total{generation="1"} 0.0
-python_gc_objects_uncollectable_total{generation="2"} 0.0
-# HELP python_gc_collections_total Number of times this generation was collected
-# TYPE python_gc_collections_total counter
-python_gc_collections_total{generation="0"} 53.0
-python_gc_collections_total{generation="1"} 4.0
-python_gc_collections_total{generation="2"} 0.0
-# HELP python_info Python platform information
-# TYPE python_info gauge
-python_info{implementation="CPython",major="3",minor="11",patchlevel="7",version="3.11.7"} 1.0
-# HELP hitl_psql_health_status PSQL connection health
-# TYPE hitl_psql_health_status gauge
-hitl_psql_health_status{hitl_psql_health_status="healthy"} 1.0
-hitl_psql_health_status{hitl_psql_health_status="unhealthy"} 0.0
-# HELP hitl_psql_health_request_time PSQL connection response time (seconds)
-# TYPE hitl_psql_health_request_time histogram
-hitl_psql_health_request_time_bucket{le="0.005"} 0.0
-hitl_psql_health_request_time_bucket{le="0.01"} 0.0
-hitl_psql_health_request_time_bucket{le="0.025"} 0.0
-hitl_psql_health_request_time_bucket{le="0.05"} 2.0
-hitl_psql_health_request_time_bucket{le="0.075"} 3.0
-hitl_psql_health_request_time_bucket{le="0.1"} 4.0
-hitl_psql_health_request_time_bucket{le="0.25"} 4.0
-hitl_psql_health_request_time_bucket{le="0.5"} 4.0
-hitl_psql_health_request_time_bucket{le="0.75"} 4.0
-hitl_psql_health_request_time_bucket{le="1.0"} 4.0
-hitl_psql_health_request_time_bucket{le="2.5"} 4.0
-hitl_psql_health_request_time_bucket{le="5.0"} 4.0
-hitl_psql_health_request_time_bucket{le="7.5"} 4.0
-hitl_psql_health_request_time_bucket{le="10.0"} 4.0
-hitl_psql_health_request_time_bucket{le="+Inf"} 4.0
-hitl_psql_health_request_time_count 4.0
-hitl_psql_health_request_time_sum 0.2218436000039219
-# HELP hitl_psql_health_request_time_created PSQL connection response time (seconds)
-# TYPE hitl_psql_health_request_time_created gauge
-hitl_psql_health_request_time_created 1.7159152249493546e+09
-# HELP es_health_metric Metrics scraped from localhost
-# TYPE es_health_metric gauge
-es_health_metric{server_job="localhost"} 4.0
-# HELP kafka_health_metric Metrics scraped from localhost
-# TYPE kafka_health_metric gauge
+...
 kafka_health_metric{server_job="localhost"} 3.0
+# HELP kafka_connect_nodes_metric Metrics scraped from localhost
+# TYPE kafka_connect_nodes_metric gauge
+kafka_connect_nodes_metric{server_job="localhost"} 3.0
+# HELP kafka_connect_listeners_metric Metrics scraped from localhost
+# TYPE kafka_connect_listeners_metric gauge
+kafka_connect_listeners_metric{host="localhost",name="test_jdbc",running="RUNNING",server_job="localhost"} 1.0
+# HELP zookeeper_health_metric Metrics scraped from localhost
+# TYPE zookeeper_health_metric gauge
+zookeeper_health_metric{server_job="localhost"} 3.0
 # HELP kibana_health_metric Metrics scraped from localhost
 # TYPE kibana_health_metric gauge
 kibana_health_metric{server_job="localhost"} 1.0
 # HELP logstash_health_metric Metrics scraped from localhost
 # TYPE logstash_health_metric gauge
 logstash_health_metric{server_job="localhost"} 1.0
+...
 ```
 
 
