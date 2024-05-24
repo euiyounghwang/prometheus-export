@@ -662,6 +662,8 @@ if __name__ == '__main__':
         th1.start()
         T.append(th1)
         '''
+        
+        ''' es/kafka/kibana/logstash prcess check thread'''
         for host in ['localhost']:
             th1 = Thread(target=work, args=(int(port), int(interval), monitoring_metrics))
             th1.daemon = True
@@ -670,14 +672,16 @@ if __name__ == '__main__':
         
         ''' Set DB connection to validate the statuf of data pipelines after restart kafka cluster when security patching '''
         ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
-        ''' This thread will run if db_run as argument is true and db is online'''
+        ''' we create a single test record every five minutes and we upload that test record into a elastic search '''
+        ''' and we do that just for auditing purposes to check the overall health of the data pipeline to ensure we're continually processing data '''
+        ''' This thread will run every five minutes if db_run as argument is true and db is online'''
         # --
         # db validate for data processing
         if db_run and database_object.get_db_connection():
             db_thread = Thread(target=db_jobs_work, args=(int(interval), database_object, sql))
             db_thread.daemon = True
             db_thread.start()
-            T.append(th1)
+            T.append(db_thread)
 
         # wait for all threads to terminate
         for t in T:
