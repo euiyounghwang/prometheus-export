@@ -18,6 +18,8 @@ from config.log_config import create_log
 import subprocess
 import json
 import copy
+import jaydebeapi
+import jpype
 
 # logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -41,6 +43,99 @@ zookeeper_nodes_gauge_g = Gauge("zookeeper_health_metric", 'Metrics scraped from
 kibana_instance_gauge_g = Gauge("kibana_health_metric", 'Metrics scraped from localhost', ["server_job"])
 logstash_instance_gauge_g = Gauge("logstash_health_metric", 'Metrics scraped from localhost', ["server_job"])
 spark_jobs_gauge_g = Gauge("spark_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "id", "cores", "memoryperslave", "submitdate", "duration", "activeapps"])
+db_jobs_gauge_g = Gauge("db_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "processname", "status", "addts", "dbid"])
+
+
+
+class oracle_database:
+
+    def __init__(self, db_url) -> None:
+        self.db_url = db_url
+        self.set_db_connection()
+        
+
+    def set_init_JVM(self):
+        '''
+        Init JPYPE StartJVM
+        '''
+
+        if jpype.isJVMStarted():
+            return
+        
+        jar = r'./ojdbc8.jar'
+        args = '-Djava.class.path=%s' % jar
+
+        # print('Python Version : ', sys.version)
+        # print('JAVA_HOME : ', os.environ["JAVA_HOME"])
+        # print('JDBC_Driver Path : ', JDBC_Driver)
+        # print('Jpype Default JVM Path : ', jpype.getDefaultJVMPath())
+
+        # jpype.startJVM("-Djava.class.path={}".format(JDBC_Driver))
+        jpype.startJVM(jpype.getDefaultJVMPath(), args, '-Xrs')
+
+
+    def set_init_JVM_shutdown(self):
+        jpype.shutdownJVM() 
+   
+
+    def set_db_connection(self):
+        ''' DB Connect '''
+        print('connect-str : ', self.db_url)
+        
+        StartTime = datetime.datetime.now()
+
+        # -- Init JVM
+        self.set_init_JVM()
+        # --
+        
+        # - DB Connection
+        self.db_conn = jaydebeapi.connect("oracle.jdbc.driver.OracleDriver", self.db_url)
+        # --
+        EndTime = datetime.datetime.now()
+        Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
+        print("# DB Connection Running Time - {}".format(str(Delay_Time)))
+
+    
+    def set_db_disconnection(self):
+        ''' DB Disconnect '''
+        self.db_conn.close()
+        print("Disconnected to Oracle database successfully!") 
+
+    
+    def get_db_connection(self):
+        return self.db_conn
+    
+
+    def excute_oracle_query(self, sql):
+        '''
+        DB Oracle : Excute Query
+        '''
+        print('excute_oracle_query -> ', sql)
+        # Creating a cursor object
+        cursor = self.get_db_connection().cursor()
+
+        # Executing a query
+        cursor.execute(sql)
+        
+        # Fetching the results
+        results = cursor.fetchall()
+        cols = list(zip(*cursor.description))[0]
+        # print(type(results), cols)
+
+        json_rows_list = []
+        for row in results:
+            # print(type(row), row)
+            json_rows_dict = {}
+            for i, row in enumerate(list(row)):
+                json_rows_dict.update({cols[i] : row})
+            json_rows_list.append(json_rows_dict)
+
+        cursor.close()
+
+        # logging.info(json_rows_list)
+        
+        return json_rows_list
+    
 
 
 class ProcessHandler():
@@ -292,6 +387,9 @@ def get_metrics_all_envs(monitoring_metrics):
          #-- es node cluster health
         ''' http://localhost:9200/_cluster/health '''
         
+        ''' The cluster health API returns a simple status on the health of the cluster. '''
+        ''' get the health of the cluseter and set value based on status/get the number of nodes in the cluster'''
+        ''' The operation receives cluster health results from only one active node among several nodes. '''
         resp_es_health = get_elasticsearch_health(monitoring_metrics)
         if resp_es_health:
             ''' get es nodes from _cluster/health api'''
@@ -307,20 +405,29 @@ def get_metrics_all_envs(monitoring_metrics):
             es_nodes_gauge_g.labels(socket.gethostname()).set(0)
         #--
 
-        ''' check nodes on all kibana/kafka/connect except es nodes by using socket '''
+        ''' check the status of nodes on all kibana/kafka/connect except es nodes by using socket '''
+        ''' The es cluster is excluded because it has already been checked in get_elasticsearch_health function'''
         monitoring_metrics_cp = copy.deepcopy(monitoring_metrics)
         del monitoring_metrics_cp["es_url"]
         logging.info("monitoring_metrics_cp - {}".format(json.dumps(monitoring_metrics_cp, indent=2)))
+
+        ''' socket.connect_ex( <address> ) similar to the connect() method but returns an error indicator of raising an exception for errors '''
+        ''' The error indicator is 0 if the operation succeeded, otherwise the value of the errno variable. '''
+        ''' Kafka/Kafka connect/Spark/Kibana'''
         response_dict = get_service_port_alive(monitoring_metrics_cp)
 
         kafka_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["kafka_url"]["GREEN_CNT"]))
         kafka_connect_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["kafka_connect_url"]["GREEN_CNT"]))
         zookeeper_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["zookeeper_url"]["GREEN_CNT"]))
         
-        ''' get es nodes from _cluster/health api'''
+        ''' Update the status of kibana instance by using socket.connect_ex'''
         # es_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["es_url"]["GREEN_CNT"]))
         kibana_instance_gauge_g.labels(socket.gethostname()).set(int(response_dict["kibana_url"]["GREEN_CNT"]))
 
+
+        ''' first node of --kafka_url argument is a master node to get the number of jobs using http://localhost:8080/json '''
+        ''' To receive spark job lists, JSON results are returned from master node 8080 port. ''' 
+        ''' From the results, we get the list of spark jobs in activeapps key and transform them to metrics for exposure. '''
         # -- Get spark jobs
         response_spark_jobs = get_spark_jobs(monitoring_metrics.get("kafka_url", ""))
 
@@ -361,6 +468,11 @@ def get_metrics_all_envs(monitoring_metrics):
                 "localhost3": {}
             }
         '''
+
+        ''' First, this operation receives results from one active node to find out the listenen list through 8083 port with connectos endpoint (http://localhost:8083/connectors/) '''
+        ''' then, each kafka node receives json results from port 8083 to check the status of kafka listener. '''
+        ''' As a result, it is checked whether each listener is running normally. '''
+        ''' Prometheus periodically takes exposed metrics and exposes them on the graph. '''
         response_listeners = get_kafka_connector_listeners(monitoring_metrics.get("kafka_url", ""))
         kafka_connect_listeners_gauge_g._metrics.clear()
         if response_listeners: 
@@ -374,11 +486,43 @@ def get_metrics_all_envs(monitoring_metrics):
                         else:
                             kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element['name'], running=element['tasks'][0]['state']).set(0)
 
+        ''' pgrep -f logstash to get process id'''
+        ''' set 1 if process id has value otherwise set 0'''
         # -- local instance based
         logstash_instance_gauge_g.labels(socket.gethostname()).set(int(get_Process_Id()))
 
     except Exception as e:
         logging.error(e)
+
+
+
+
+def db_jobs_work(interval, database_object, sql):
+    ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
+    ''' This thread will run if db_run as argument is true and db is online'''
+    while True:
+        try:
+            # - main sql
+            '''
+             [
+                {'a': 'v', 'b': 'b1}
+            ]
+            '''
+            db_jobs_gauge_g._metrics.clear()
+            result_json_value = database_object.excute_oracle_query(sql)
+            logging.info(result_json_value)
+            if result_json_value:
+                for element_each_json in result_json_value:
+                    # logging.info('# rows : {}'.format(element_each_json))
+                    db_jobs_gauge_g.labels(server_job=socket.gethostname(), processname=element_each_json['PROCESSNAME'], status=element_each_json['STATUS'], addts=element_each_json["ADDTS"], dbid=element_each_json['DBID']).set(1)
+            # -- 
+        
+        except Exception as e:
+            logging.error(e)
+        
+        # time.sleep(interval)
+        ''' update after five minutes'''
+        time.sleep(300)
 
 
 def work(port, interval, monitoring_metrics):
@@ -403,12 +547,12 @@ def work(port, interval, monitoring_metrics):
     '''
     try:
         start_http_server(int(port))
-        print(f"Standalone Prometheus Exporter Server started..")
+        logging.info(f"Standalone Prometheus Exporter Server started..")
 
         while True:
-            get_metrics_all_envs(monitoring_metrics)
-            time.sleep(interval)
-
+             get_metrics_all_envs(monitoring_metrics)
+             time.sleep(interval)
+        
         '''
         for each_host in ['localhost', 'localhost']:
             while True:
@@ -419,12 +563,9 @@ def work(port, interval, monitoring_metrics):
                 time.sleep(interval)
         '''
 
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         logging.info("#Interrupted..")
-    
-    start_http_server(int(port))
-    print(f"Prometheus Exporter Server started..")
-
+       
 
 
 if __name__ == '__main__':
@@ -440,9 +581,24 @@ if __name__ == '__main__':
     parser.add_argument('--zookeeper_url', dest='zookeeper_url', default="localhost:22181,localhost:21811,localhost:21812", help='zookeeper hosts')
     parser.add_argument('--es_url', dest='es_url', default="localhost:9200,localhost:9501,localhost:9503", help='es hosts')
     parser.add_argument('--kibana_url', dest='kibana_url', default="localhost:5601,localhost:15601", help='kibana hosts')
+    parser.add_argument('--url', dest='url', default="postgresql://postgres:1234@localhost:5432/postgres", help='db url')
+    parser.add_argument('--db_run', dest="db_run", default="False", help='If true, executable will run after compilation.')
+    parser.add_argument('--sql', dest='sql', default="select * from test", help='sql')
     parser.add_argument('--port', dest='port', default=9115, help='Expose Port')
     parser.add_argument('--interval', dest='interval', default=30, help='Interval')
     args = parser.parse_args()
+
+    ''' 
+    The reason why I created this dashboard was because on security patching day, 
+    we had to check the status of ES cluster/kafka/spark job and kibana/logstash manually every time Even if it is automated with Jenkins script.
+    
+    The service monitoring export we want does not exist in the built-in export application that is already provided. 
+    To reduce this struggle, I developed it using the prometheus library to check the status at once on the dashboard.
+
+    Prometheus provides client libraries based on Python, Go, Ruby and others that we can use to generate metrics with the necessary labels.
+    When Prometheus scrapes your instance's HTTP endpoint, the client library sends the current state of all tracked metrics to the server. 
+    The prometheus_client package supports exposing metrics from software written in Python, so that they can be scraped by a Prometheus service. 
+    '''
 
     if args.kafka_url:
         kafka_url = args.kafka_url
@@ -458,6 +614,15 @@ if __name__ == '__main__':
 
     if args.kibana_url:
         kibana_url = args.kibana_url
+
+    if args.url:
+        db_url = args.url
+    
+    if args.db_run:
+        db_run = args.db_run
+
+    if args.sql:
+        sql = args.sql
 
     if args.interval:
         interval = args.interval
@@ -477,19 +642,58 @@ if __name__ == '__main__':
     logging.info(json.dumps(monitoring_metrics, indent=2))
     logging.info(interval)
 
-    work(int(port), int(interval), monitoring_metrics)
-    '''
-    T = []
+
+    db_run = True if str(db_run).upper() == "TRUE" else False
+    print(db_run, type(db_run), sql)
+
+
+    if db_run:
+        database_object = oracle_database(db_url)
+    else:
+        database_object = None
+
+    # work(int(port), int(interval), monitoring_metrics)
+
     try:
-        for host in ['localhost', 'localhost1']:
+        T = []
+        '''
+        th1 = Thread(target=test)
+        th1.daemon = True
+        th1.start()
+        T.append(th1)
+        '''
+        for host in ['localhost']:
             th1 = Thread(target=work, args=(int(port), int(interval), monitoring_metrics))
             th1.daemon = True
             th1.start()
             T.append(th1)
-            # th1.join()
-        [t.join() for t in T] # wait for all threads to terminate
+        
+        ''' Set DB connection to validate the statuf of data pipelines after restart kafka cluster when security patching '''
+        ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
+        ''' This thread will run if db_run as argument is true and db is online'''
+        # --
+        # db validate for data processing
+        if db_run and database_object.get_db_connection():
+            db_thread = Thread(target=db_jobs_work, args=(int(interval), database_object, sql))
+            db_thread.daemon = True
+            db_thread.start()
+            T.append(th1)
+
+        # wait for all threads to terminate
+        for t in T:
+            while t.is_alive():
+                t.join(0.5)
+
     except (KeyboardInterrupt, SystemExit):
-        logging.info("#Interrupted..")
-    '''
+        logging.info("# Interrupted..")
+
+    finally:
+        if db_run:
+            database_object.set_db_disconnection()
+            database_object.set_init_JVM_shutdown()
+        
+    logging.info("Standalone Prometheus Exporter Server exited..!")
     
-   
+    
+     
+ 

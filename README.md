@@ -52,6 +52,9 @@ poetry init
 poetry add prometheus-client
 poetry add psutil
 poetry add pytz
+poetry add JPype1
+poetry add psycopg2-binary
+poetry add jaydebeapi
 ```
 or you can run this shell script `./create_virtual_env.sh` to make an environment. then go to virtual enviroment using `source .venv/bin/activate`
 
