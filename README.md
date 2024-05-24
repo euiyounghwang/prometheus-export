@@ -67,7 +67,9 @@ pip install prometheus-client
 
 ### Custom Promethues Exporter
 - Expose my metrics for dev kafka cluster to http://localhost:9115
-- Interface with `DB Interface Export` (https://github.com/euiyounghwang/DB-Interface-Export) by using FastAPI Framework to get the records as metrics
+- Expose ES cluster/Kafka/Kibana/Logstash metrics by using this exporter based on ES API/socket library
+- EXpose DB records as metrics from `DB-Interface-Export API` with HTTP POST Method
+- Interface with `DB Interface Export` (https://github.com/euiyounghwang/DB-Interface-Export) by using FastAPI Framework to get the records as metrics from the specific databse
 ```bash
 # HELP python_gc_objects_collected_total Objects collected during gc
 # TYPE python_gc_objects_collected_total counter
