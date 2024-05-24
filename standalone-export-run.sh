@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# JAVA_HOME='C:\Users\euiyoung.hwang\'
+# PATH=$PATH:$JAVA_HOME
+# export JAVA_HOME
+
 # Activate virtualenv && run serivce
 
 SCRIPTDIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
