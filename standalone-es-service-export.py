@@ -33,6 +33,9 @@ hitl_server_health_request_time = Histogram('hitl_server_health_request_time', '
 
 kafka_brokers_gauge = Gauge("kafka_brokers", "the number of kafka brokers")
 
+''' export application performance metric'''
+es_service_jobs_performance_gauge_g = Gauge("es_service_jobs_performance_running_metrics", 'Metrics scraped from localhost', ["server_job"])
+
 ''' gauge with dict type'''
 es_nodes_gauge_g = Gauge("es_node_metric", 'Metrics scraped from localhost', ["server_job"])
 es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
@@ -584,8 +587,18 @@ def work(port, interval, monitoring_metrics):
         logging.info(f"Standalone Prometheus Exporter Server started..")
 
         while True:
-             get_metrics_all_envs(monitoring_metrics)
-             time.sleep(interval)
+            StartTime = datetime.datetime.now()
+
+            ''' Collection metrics from ES/Kafka/Spark/Kibana/Logstash'''
+            get_metrics_all_envs(monitoring_metrics)
+            
+            ''' export application processing time '''
+            EndTime = datetime.datetime.now()
+            Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
+            logging.info("# Export Application Running Time - {}".format(str(Delay_Time)))
+            es_service_jobs_performance_gauge_g.labels(server_job=socket.gethostname()).set(float(Delay_Time))
+            
+            time.sleep(interval)
         
         '''
         for each_host in ['localhost', 'localhost']:
