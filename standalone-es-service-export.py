@@ -43,8 +43,8 @@ zookeeper_nodes_gauge_g = Gauge("zookeeper_health_metric", 'Metrics scraped from
 kibana_instance_gauge_g = Gauge("kibana_health_metric", 'Metrics scraped from localhost', ["server_job"])
 logstash_instance_gauge_g = Gauge("logstash_health_metric", 'Metrics scraped from localhost', ["server_job"])
 spark_jobs_gauge_g = Gauge("spark_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "id", "cores", "memoryperslave", "submitdate", "duration", "activeapps"])
-db_jobs_gauge_g = Gauge("db_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "processname", "status", "addts", "dbid"])
-
+db_jobs_gauge_g = Gauge("db_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "processname", "cnt", "status", "addts", "dbid"])
+db_jobs_performance_gauge_g = Gauge("db_jobs_performance_running_metrics", 'Metrics scraped from localhost', ["server_job"])
 
 
 class oracle_database:
@@ -497,9 +497,10 @@ def get_metrics_all_envs(monitoring_metrics):
 
 
 
-def db_jobs_work(interval, database_object, sql):
+def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
+# def db_jobs_work(interval, db_http_host):
     ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
-    ''' This thread will run if db_run as argument is true and db is online'''
+    ''' This thread will run if db_run as argument is true and db is online using DB interface RestAPI'''
     while True:
         try:
             # - main sql
@@ -508,21 +509,54 @@ def db_jobs_work(interval, database_object, sql):
                 {'a': 'v', 'b': 'b1}
             ]
             '''
-            db_jobs_gauge_g._metrics.clear()
-            result_json_value = database_object.excute_oracle_query(sql)
+            StartTime = datetime.datetime.now()
+            
+            if db_http_host:
+                '''  retrieve records from DB interface REST API URL using requests library'''
+                logging.info("# HTTP Interface")
+
+                ''' call to DB interface RestAPI'''
+                request_body = {
+                        "db_url" : db_url,
+                        "sql" : sql
+                }
+
+                logging.info("db_http_host : {}, db_url : {}, sql : {}".format(db_http_host, db_url, sql))
+                resp = requests.post(url="http://{}/db/get_db_query".format(db_http_host), json=request_body, timeout=20)
+                
+                if not (resp.status_code == 200):
+                    return None
+                
+                logging.info(f"db/process_table - {resp}")
+                ''' db job performance through db interface restapi'''
+                # db_jobs_performance_gauge_g.labels(server_job=socket.gethostname()).set(int(resp.json["running_time"]))
+                result_json_value = resp.json()["results"]
+         
+            else:
+                ''' This logic perform to connect to DB directly and retrieve records from processd table '''
+                logging.info("# DB Interface Directly")
+                result_json_value = database_object.excute_oracle_query(sql)
+
+            ''' DB processing time '''
+            EndTime = datetime.datetime.now()
+            Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
+            logging.info("# DB Query Running Time - {}".format(str(Delay_Time)))
+            db_jobs_performance_gauge_g.labels(server_job=socket.gethostname()).set(float(Delay_Time))
+
+            ''' response same format with list included dicts'''   
             logging.info(result_json_value)
+            db_jobs_gauge_g._metrics.clear()
             if result_json_value:
                 for element_each_json in result_json_value:
                     # logging.info('# rows : {}'.format(element_each_json))
-                    db_jobs_gauge_g.labels(server_job=socket.gethostname(), processname=element_each_json['PROCESSNAME'], status=element_each_json['STATUS'], addts=element_each_json["ADDTS"], dbid=element_each_json['DBID']).set(1)
-            # -- 
-        
+                    db_jobs_gauge_g.labels(server_job=socket.gethostname(), processname=element_each_json['PROCESSNAME'], status=element_each_json['STATUS'], cnt=element_each_json["COUNT(*)"], addts=element_each_json["ADDTS"], dbid=element_each_json['DBID']).set(1)
+            
         except Exception as e:
             logging.error(e)
         
         # time.sleep(interval)
         ''' update after five minutes'''
-        time.sleep(300)
+        time.sleep(interval)
 
 
 def work(port, interval, monitoring_metrics):
@@ -572,8 +606,10 @@ if __name__ == '__main__':
     '''
     ./standalone-export-run.sh -> ./standalone-es-service-export.sh status/stop/start
     # first node of --kafka_url argument is a master node to get the number of jobs using http://localhost:8080/json
-    python ./standalone-es-service-export
-    python ./prometheus_client_export.py --host localhost --url "http://localhost:9999/health?kafka_url=localhost:29092,localhost:39092,localhost:49092&es_url=localhost:9200,localhost:9501,localhost:9503"
+    # -- direct access to db
+    python ./standalone-es-service-export.py --interface db --url jdbc:oracle:thin:id/passwd@address:port/test_db --db_run false --kafka_url localhost:9092,localhost:9092,localhost:9092 --kafka_connect_url localhost:8083,localhost:8083,localhost:8083 --zookeeper_url  localhost:2181,localhost:2181,localhost:2181 --es_url localhost:9200,localhost:9201,localhost:9201,localhost:9200 --kibana_url localhost:5601 --sql "SELECT processname from test"
+    # -- collect records through DB interface Restapi
+    python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:id/passwd@address:port/test_db --db_run false --kafka_url localhost:9092,localhost:9092,localhost:9092 --kafka_connect_url localhost:8083,localhost:8083,localhost:8083 --zookeeper_url  localhost:2181,localhost:2181,localhost:2181 --es_url localhost:9200,localhost:9201,localhost:9201,localhost:9200 --kibana_url localhost:5601 --sql "SELECT processname from test"
     '''
     parser = argparse.ArgumentParser(description="Script that might allow us to use it as an application of custom prometheus exporter")
     parser.add_argument('--kafka_url', dest='kafka_url', default="localhost:29092,localhost:39092,localhost:49092", help='Kafka hosts')
@@ -581,9 +617,16 @@ if __name__ == '__main__':
     parser.add_argument('--zookeeper_url', dest='zookeeper_url', default="localhost:22181,localhost:21811,localhost:21812", help='zookeeper hosts')
     parser.add_argument('--es_url', dest='es_url', default="localhost:9200,localhost:9501,localhost:9503", help='es hosts')
     parser.add_argument('--kibana_url', dest='kibana_url', default="localhost:5601,localhost:15601", help='kibana hosts')
+    ''' ----------------------------------------------------------------------------------------------------------------'''
+    ''' set DB or http interface api'''
+    parser.add_argument('--interface', dest='interface', default="db", help='db or http')
+    ''' set DB connection dircectly'''
     parser.add_argument('--url', dest='url', default="postgresql://postgres:1234@localhost:5432/postgres", help='db url')
     parser.add_argument('--db_run', dest="db_run", default="False", help='If true, executable will run after compilation.')
     parser.add_argument('--sql', dest='sql', default="select * from test", help='sql')
+    ''' request DB interface restpi insteady of connecting db dircectly'''
+    parser.add_argument('--db_http_host', dest='db_http_host', default="http://localhost:8002", help='db restapi url')
+    ''' ----------------------------------------------------------------------------------------------------------------'''
     parser.add_argument('--port', dest='port', default=9115, help='Expose Port')
     parser.add_argument('--interval', dest='interval', default=30, help='Interval')
     args = parser.parse_args()
@@ -615,6 +658,12 @@ if __name__ == '__main__':
     if args.kibana_url:
         kibana_url = args.kibana_url
 
+    ''' ----------------------------------------------------------------------------------------------------------------'''
+    ''' set DB or http interface api'''
+    if args.interface:
+        interface = args.interface
+
+    ''' set DB connection dircectly'''
     if args.url:
         db_url = args.url
     
@@ -623,6 +672,11 @@ if __name__ == '__main__':
 
     if args.sql:
         sql = args.sql
+
+    ''' request DB interface restpi insteady of connecting db dircectly'''
+    if args.db_http_host:
+        db_http_host = args.db_http_host
+    ''' ----------------------------------------------------------------------------------------------------------------'''
 
     if args.interval:
         interval = args.interval
@@ -642,16 +696,14 @@ if __name__ == '__main__':
     logging.info(json.dumps(monitoring_metrics, indent=2))
     logging.info(interval)
 
-
     db_run = True if str(db_run).upper() == "TRUE" else False
-    print(db_run, type(db_run), sql)
+    print(interface, db_run, type(db_run), sql)
 
-
-    if db_run:
+    if interface == 'db' and db_run:
         database_object = oracle_database(db_url)
     else:
         database_object = None
-
+    
     # work(int(port), int(interval), monitoring_metrics)
 
     try:
@@ -670,18 +722,27 @@ if __name__ == '__main__':
             th1.start()
             T.append(th1)
         
-        ''' Set DB connection to validate the statuf of data pipelines after restart kafka cluster when security patching '''
+        ''' Set DB connection to validate the status of data pipelines after restart kafka cluster when security patching '''
         ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
         ''' we create a single test record every five minutes and we upload that test record into a elastic search '''
         ''' and we do that just for auditing purposes to check the overall health of the data pipeline to ensure we're continually processing data '''
         ''' This thread will run every five minutes if db_run as argument is true and db is online'''
         # --
-        # db validate for data processing
-        if db_run and database_object.get_db_connection():
-            db_thread = Thread(target=db_jobs_work, args=(int(interval), database_object, sql))
-            db_thread.daemon = True
-            db_thread.start()
-            T.append(db_thread)
+       
+        if interface == 'db':
+            ''' access to db directly to collect records to check the overall health of the data pipleline'''
+            if db_run and database_object.get_db_connection():
+                db_thread = Thread(target=db_jobs_work, args=(300, database_object, sql, None, None))
+                db_thread.daemon = True
+                db_thread.start()
+                T.append(db_thread)
+        
+        elif interface == 'http':
+            ''' request DB interface restpi insteady of connecting db dircectly '''
+            db_http_thread = Thread(target=db_jobs_work, args=(300, None, sql, db_http_host, db_url))
+            db_http_thread.daemon = True
+            db_http_thread.start()
+            T.append(db_http_thread)
 
         # wait for all threads to terminate
         for t in T:
@@ -692,7 +753,7 @@ if __name__ == '__main__':
         logging.info("# Interrupted..")
 
     finally:
-        if db_run:
+        if interface == 'db' and db_run:
             database_object.set_db_disconnection()
             database_object.set_init_JVM_shutdown()
         

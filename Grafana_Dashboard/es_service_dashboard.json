@@ -31,6 +31,18 @@
       "tooltip": "",
       "type": "link",
       "url": "http://localhost:9115/metrics"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": true,
+      "title": "Spark Job API Service",
+      "tooltip": "Spark Job API Service",
+      "type": "link",
+      "url": "http://localhost:8003/docs#/"
     }
   ],
   "panels": [
@@ -161,7 +173,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "es_health_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "es_health_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "intervalFactor": 2,
@@ -265,7 +277,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "es_node_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "es_node_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "interval": "",
@@ -376,7 +388,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "kafka_health_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "kafka_health_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "intervalFactor": 2,
@@ -472,7 +484,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "kafka_health_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "kafka_health_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "interval": "",
@@ -483,7 +495,7 @@
           "step": 60
         }
       ],
-      "title": "Kafka Dev Nodes",
+      "title": "Kafka Nodes",
       "type": "stat"
     },
     {
@@ -582,7 +594,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "kafka_connect_nodes_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "kafka_connect_nodes_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "intervalFactor": 2,
@@ -678,7 +690,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "kafka_connect_nodes_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "kafka_connect_nodes_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "interval": "",
@@ -788,7 +800,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "zookeeper_health_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "zookeeper_health_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "intervalFactor": 2,
@@ -884,7 +896,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "zookeeper_health_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "zookeeper_health_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "interval": "",
@@ -947,13 +959,6 @@
         "y": 1
       },
       "id": 6,
-      "links": [
-        {
-          "targetBlank": true,
-          "title": "Kibana URL",
-          "url": "http://localhost:5601"
-        }
-      ],
       "maxDataPoints": 100,
       "options": {
         "colorMode": "background",
@@ -979,7 +984,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "kibana_health_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "kibana_health_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "intervalFactor": 2,
@@ -1064,7 +1069,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "logstash_health_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "logstash_health_metric{server_job=\"localhost\"}",
           "format": "time_series",
           "instant": true,
           "intervalFactor": 2,
@@ -1112,15 +1117,16 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Time"
+              "options": "host"
             },
             "properties": [
               {
                 "id": "displayName",
-                "value": "Time"
+                "value": "Host"
               },
               {
-                "id": "custom.align"
+                "id": "custom.align",
+                "value": "auto"
               }
             ]
           },
@@ -1143,7 +1149,8 @@
                 "value": 2
               },
               {
-                "id": "custom.align"
+                "id": "custom.align",
+                "value": "auto"
               }
             ]
           },
@@ -1172,7 +1179,8 @@
                 }
               },
               {
-                "id": "custom.align"
+                "id": "custom.align",
+                "value": "auto"
               },
               {
                 "id": "thresholds",
@@ -1207,7 +1215,8 @@
                 "value": 2
               },
               {
-                "id": "custom.align"
+                "id": "custom.align",
+                "value": "auto"
               }
             ]
           },
@@ -1226,14 +1235,15 @@
                 "value": 2
               },
               {
-                "id": "custom.align"
+                "id": "custom.align",
+                "value": "auto"
               }
             ]
           }
         ]
       },
       "gridPos": {
-        "h": 5,
+        "h": 7,
         "w": 20,
         "x": 0,
         "y": 4
@@ -1259,7 +1269,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "kafka_connect_listeners_metric{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "kafka_connect_listeners_metric{server_job=\"localhost\"}",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1324,6 +1334,276 @@
                 "value": "Time"
               },
               {
+                "id": "custom.align",
+                "value": "auto"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "instance"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Instance"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.align",
+                "value": "auto"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Status"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "auto"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#FA6400",
+                      "value": null
+                    },
+                    {
+                      "color": "#56A64B",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "job"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.align",
+                "value": "auto"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "__name__"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.align",
+                "value": "auto"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "activeapps"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 227
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cores"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "custom.align",
+                "value": "auto"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 98
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "memoryperslave"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 137
+              },
+              {
+                "id": "custom.align",
+                "value": "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 20,
+        "x": 0,
+        "y": 11
+      },
+      "id": 18,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "adjjbqa5ic64gd"
+          },
+          "editorMode": "code",
+          "expr": "spark_jobs_running_metrics{server_job=\"localhost\"}",
+          "format": "table",
+          "instant": true,
+          "interval": "",
+          "intervalFactor": 1,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Spark Jobs",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {
+            "reducers": []
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "adjjbqa5ic64gd"
+      },
+      "description": "Check If data pipeline process correctly",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
                 "id": "custom.align"
               }
             ]
@@ -1437,19 +1717,12 @@
         ]
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 20,
         "x": 0,
-        "y": 9
+        "y": 18
       },
-      "id": 18,
-      "links": [
-        {
-          "targetBlank": true,
-          "title": "Master Nodes",
-          "url": "http://localhost.am.co.gxo.com:8080"
-        }
-      ],
+      "id": 22,
       "options": {
         "cellHeight": "sm",
         "footer": {
@@ -1460,7 +1733,13 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "addts"
+          }
+        ]
       },
       "pluginVersion": "10.4.2",
       "targets": [
@@ -1470,7 +1749,7 @@
             "uid": "adjjbqa5ic64gd"
           },
           "editorMode": "code",
-          "expr": "spark_jobs_running_metrics{server_job=\"localhost.am.co.gxo.com\"}",
+          "expr": "db_jobs_running_metrics{server_job=\"localhost\"}",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1479,7 +1758,7 @@
           "refId": "A"
         }
       ],
-      "title": "Spark Jobs",
+      "title": "WMx DB : Data Pipeline Process (es_pipeline_processed) - Refresh every 5 mintues (Overall health of the data pipeline)",
       "transformations": [
         {
           "id": "merge",
@@ -1496,7 +1775,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 24
       },
       "id": 3,
       "panels": [],
@@ -1509,7 +1788,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 25
       },
       "id": 8,
       "panels": [],
@@ -1522,7 +1801,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 26
       },
       "id": 9,
       "panels": [],
@@ -1544,6 +1823,6 @@
   "timezone": "browser",
   "title": "ES_Team_Dashboard",
   "uid": "adm08055cf3lsa",
-  "version": 80,
+  "version": 109,
   "weekStart": ""
 }
