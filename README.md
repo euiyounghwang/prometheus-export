@@ -29,9 +29,14 @@ sudo ln -s /usr/lib64/python3.9/lib-dynload/ /usr/local/lib/python3.9/lib-dynloa
 python3 -m venv .venv
 source .venv/bin/activate
 
-# pip install -r ./requirement.txt
+# pip install -r ./dev-requirement.txt
 pip install prometheus-client
 pip install requests
+pip install JPype1
+pip install psycopg2-binary
+pip install jaydebeapi
+pip install pytz
+pip install httpx
 
 # when error occur like this
 # ImportError: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'OpenSSL 1.0.2k-fips  26 Jan 2017'. See: https://github.com/urllib3/urllib3/issues/2168
