@@ -237,8 +237,8 @@ if __name__ == '__main__':
 
     ''' read hosts file and transform to json format'''
     hosts_dicts = read_hosts("./hosts")
+    
     ''' generate arguments for shell script arguments for ./standalone-export-run.sh'''
-
     ''' results
     # dev ENV
     python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:bi"$"test/None --db_run false --kafka_url data1:9092,data2:9092,data3:9092 --kafka_connect_url data1:8083,data2:8083,data3:8083 --zookeeper_url  data1:2181,data2:2181,data3:2181 --es_url es1:9200,es2:9200,es3:9200,es4:9200 --kibana_url kibana:5601 --interval 30 --sql "SELECT * FROM TEST"
