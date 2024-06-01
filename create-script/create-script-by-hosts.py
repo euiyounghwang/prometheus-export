@@ -65,13 +65,30 @@ def transform_json_to_each_arguments(host_dict):
     
     logging.info(json.dumps(hosts_dicts, indent=2))
 
-    ''' call to making_script'''
-    for k, v in hosts_dicts.items():
-        kibana_url = v.get("kibana")
-        print(kibana_url)
-        print('\n')
-        print(making_script(db_url=None, kafka_url=','.join(v.get("kafka_url")), kafka_connect_url=','.join(v.get("kafka_connect_url")), zookeeper_url=','.join(v.get("zookeeper_url")), es_url=','.join(v.get("es_url")), kibana_url=v.get("kibana")))
-        print('\n')
+
+    def export_file(hosts_dicts):
+        ''' export to file '''
+        with open("./script_envs", "w") as f:
+            ''' call to making_script'''
+            for k, v in hosts_dicts.items():
+                kibana_url = v.get("kibana")
+                print('\n')
+                print(f"# {k} ENV")
+                script_env = making_script(db_url=None, kafka_url=','.join(v.get("kafka_url")).lower(), kafka_connect_url=','.join(v.get("kafka_connect_url")).lower(), zookeeper_url=','.join(v.get("zookeeper_url")).lower(), es_url=','.join(v.get("es_url")).lower(), kibana_url=v.get("kibana").lower())
+                print(script_env)
+                f.write('\n')
+                f.write(f"# {k} ENV" + '\n')
+                f.write(script_env + '\n')
+
+    ''' export file'''
+    ''' output 
+    # dev ENV
+    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data1:9092,data2:9092,data3:9092 --kafka_connect_url data1:8083,data2:8083,data3:8083 --zookeeper_url  data1:2181,data2:2181,data3:2181 --es_url es1:9200,es2:9200,es3:9200,es4:9200 --kibana_url kibana:5601 --interval 30 --sql "SELECT processname, status, MAX (CAST (addts AS DATE)) as addts, COUNT (*), get_db_name as dbid FROM es_pipeline_processed a WHERE addts >= TRUNC (SYSTIMESTAMP) AND status IN ('E', 'C') GROUP BY processname, status ORDER BY 3 DESC"
+
+    # localhost ENV
+    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT processname, status, MAX (CAST (addts AS DATE)) as addts, COUNT (*), get_db_name as dbid FROM es_pipeline_processed a WHERE addts >= TRUNC (SYSTIMESTAMP) AND status IN ('E', 'C') GROUP BY processname, status ORDER BY 3 DESC"
+    '''
+    export_file(hosts_dicts)
                 
 
 
@@ -151,4 +168,13 @@ if __name__ == '__main__':
     ''' read hosts file and transform to json format'''
     hosts_dicts = read_hosts("./hosts")
     ''' generate arguments for shell script arguments for ./standalone-export-run.sh'''
+
+    ''' results
+    # dev ENV
+    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data1:9092,data2:9092,data3:9092 --kafka_connect_url data1:8083,data2:8083,data3:8083 --zookeeper_url  data1:2181,data2:2181,data3:2181 --es_url es1:9200,es2:9200,es3:9200,es4:9200 --kibana_url kibana:5601 --interval 30 --sql "SELECT * FROM TEST"
+
+    # localhost ENV
+    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT * FROM TEST"
+
+    '''
     transform_json_to_each_arguments(hosts_dicts)
