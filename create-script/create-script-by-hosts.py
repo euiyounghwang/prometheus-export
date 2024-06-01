@@ -1,5 +1,7 @@
 
 import json
+import requests
+import datetime
 import logging
 
 
@@ -8,7 +10,7 @@ logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=lo
 
 def making_script(db_url, kafka_url, kafka_connect_url, zookeeper_url, es_url, kibana_url):
     ''' create python script command per every environment'''
-    script_arguments = 'python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/{} --db_run false --kafka_url {} --kafka_connect_url {} --zookeeper_url  {} --es_url {} --kibana_url {} --interval 30 --sql "SELECT processname, status, MAX (CAST (addts AS DATE)) as addts, COUNT (*), get_db_name as dbid FROM es_pipeline_processed a WHERE addts >= TRUNC (SYSTIMESTAMP) AND status IN (\'E\', \'C\') GROUP BY processname, status ORDER BY 3 DESC"' \
+    script_arguments = 'python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url {} --db_run false --kafka_url {} --kafka_connect_url {} --zookeeper_url {} --es_url {} --kibana_url {} --interval 30 --sql "SELECT processname, status, MAX (CAST (addts AS DATE)) as addts, COUNT (*), get_db_name as dbid FROM es_pipeline_processed a WHERE addts >= TRUNC (SYSTIMESTAMP) AND status IN (\'E\', \'C\') GROUP BY processname, status ORDER BY 3 DESC"' \
     .format(db_url, kafka_url, kafka_connect_url, zookeeper_url, es_url, kibana_url)
 
     return script_arguments
@@ -16,77 +18,143 @@ def making_script(db_url, kafka_url, kafka_connect_url, zookeeper_url, es_url, k
 
 def transform_json_to_each_arguments(host_dict):
     # db_url, kafka_url, kafka_connect_url, zookeeper_url, es_url, kibana_url = '', '', '', '', '', ''
-    hosts_dicts = {}
-    for key, value in host_dict.items():
-        hosts_dict ={}
-        for element in value:
-            for k, v in element.items():
-               
-                if 'kibana' in str(k).lower():
-                    kibana_url = "{}:5601".format(str(v))
-                    hosts_dict.update({'kibana' :  kibana_url})
-               
-                if 'nodes' in str(k).lower():
-                    # print(k)
-                    es_url = "{}:9200".format(str(v))
-                    if 'es_url' not in hosts_dict.keys():
-                        hosts_dict.update({'es_url' :  [es_url]})
-                    else:
-                        hosts_dict['es_url'].append(es_url)
-                    # print("#2", hosts_dict)
-               
-                if 'transfer' in str(k).lower():
-                    # print(k)
-                    kafka_url = "{}:9092".format(str(v))
-                    if 'kafka_url' not in hosts_dict.keys():
-                        hosts_dict.update({'kafka_url' :  [kafka_url]})
-                    else:
-                        hosts_dict['kafka_url'].append(kafka_url)
-                    # print("#2", hosts_dict)
 
-                    kafka_connect_url = "{}:8083".format(str(v))
-                    if 'kafka_connect_url' not in hosts_dict.keys():
-                        hosts_dict.update({'kafka_connect_url' :  [kafka_connect_url]})
-                    else:
-                        hosts_dict['kafka_connect_url'].append(kafka_connect_url)
+    logging.info("transform_json_to_each_arguments ..")
+
+    try:
+
+        hosts_dicts = {}
+        for key, value in host_dict.items():
+            hosts_dict ={}
+            for element in value:
+                for k, v in element.items():
+                
+                    if 'kibana' in str(k).lower():
+                        kibana_url = "{}:5601".format(str(v))
+                        hosts_dict.update({'kibana' :  kibana_url})
+                
+                    if 'nodes' in str(k).lower():
+                        # print(k)
+                        es_url = "{}:9200".format(str(v))
+                        if 'es_url' not in hosts_dict.keys():
+                            hosts_dict.update({'es_url' :  [es_url]})
+                        else:
+                            hosts_dict['es_url'].append(es_url)
+                        # print("#2", hosts_dict)
+                
+                    if 'transfer' in str(k).lower():
+                        # print(k)
+                        kafka_url = "{}:9092".format(str(v))
+                        if 'kafka_url' not in hosts_dict.keys():
+                            hosts_dict.update({'kafka_url' :  [kafka_url]})
+                        else:
+                            hosts_dict['kafka_url'].append(kafka_url)
+                        # print("#2", hosts_dict)
+
+                        kafka_connect_url = "{}:8083".format(str(v))
+                        if 'kafka_connect_url' not in hosts_dict.keys():
+                            hosts_dict.update({'kafka_connect_url' :  [kafka_connect_url]})
+                        else:
+                            hosts_dict['kafka_connect_url'].append(kafka_connect_url)
 
 
-                    zookeeper_url = "{}:2181".format(str(v))
-                    if 'zookeeper_url' not in hosts_dict.keys():
-                        hosts_dict.update({'zookeeper_url' :  [zookeeper_url]})
-                    else:
-                        hosts_dict['zookeeper_url'].append(zookeeper_url)
+                        zookeeper_url = "{}:2181".format(str(v))
+                        if 'zookeeper_url' not in hosts_dict.keys():
+                            hosts_dict.update({'zookeeper_url' :  [zookeeper_url]})
+                        else:
+                            hosts_dict['zookeeper_url'].append(zookeeper_url)
 
+            
+            if key not in hosts_dict.keys():
+                hosts_dicts.update({key : hosts_dict})
+            else:
+                hosts_dicts[key] = hosts_dict
         
-        if key not in hosts_dict.keys():
-            hosts_dicts.update({key : hosts_dict})
-        else:
-            hosts_dicts[key] = hosts_dict
-    
-    logging.info(json.dumps(hosts_dicts, indent=2))
+        logging.info(json.dumps(hosts_dicts, indent=2))
 
+    except Exception as e:
+        logging.error(e)
+
+
+    def get_db_url(master_node):
+        ''' get db url '''
+
+        try:
+            # logging.info(f"get_db_url's master node : {master_node}")
+            resp = requests.get(url="http://{}:8083/connectors/epq_wmxd_jdbc".format(master_node), timeout=5)
+                        
+            # logging.info(f"activeapps - {resp}, {resp.status_code}, {resp.json()}")
+            # logging.info(f"get_db_url - {resp}, {resp.status_code}")
+            if not (resp.status_code == 200):
+                return None
+
+            db_url = resp.json()["config"]["connection.url"]
+            return db_url.replace("$", '"$"')
+        
+        except Exception as e:
+            pass        
+        
 
     def export_file(hosts_dicts):
         ''' export to file '''
         with open("./script_envs", "w") as f:
             ''' call to making_script'''
             for k, v in hosts_dicts.items():
-                kibana_url = v.get("kibana")
                 print('\n')
                 print(f"# {k} ENV")
-                script_env = making_script(db_url=None, kafka_url=','.join(v.get("kafka_url")).lower(), kafka_connect_url=','.join(v.get("kafka_connect_url")).lower(), zookeeper_url=','.join(v.get("zookeeper_url")).lower(), es_url=','.join(v.get("es_url")).lower(), kibana_url=v.get("kibana").lower())
-                print(script_env)
-                f.write('\n')
-                f.write(f"# {k} ENV" + '\n')
-                f.write(script_env + '\n')
+                ''' make python script with argument'''
+                '''
+                 "localhost": {
+                    "kafka_url": [
+                        "data11:9092",
+                        "data21:9092",
+                        "data31:9092"
+                    ],
+                    "kafka_connect_url": [
+                        "data11:8083",
+                        "data21:8083",
+                        "data31:8083"
+                    ],
+                    "zookeeper_url": [
+                        "data11:2181",
+                        "data21:2181",
+                        "data31:2181"
+                    ],
+                    "kibana": "kibana1:5601",
+                    "es_url": [
+                        "es11:9200",
+                        "es21:9200",
+                        "es31:9200",
+                        "es41:9200",
+                        "es51:9200"
+                    ]
+                }
+                '''
+
+                ''' if kafka master node in kafka cluster is alive, we make a script with it as online'''
+                alive_check_with_db = get_db_url(v.get("kafka_url")[0].split(":")[0])
+                if alive_check_with_db:
+                    script_env = making_script(
+                            db_url=alive_check_with_db, 
+                            kafka_url=','.join(v.get("kafka_url")).lower(), 
+                            kafka_connect_url=','.join(v.get("kafka_connect_url")).lower(), 
+                            zookeeper_url=','.join(v.get("zookeeper_url")).lower(), 
+                            es_url=','.join(v.get("es_url")).lower(), 
+                            kibana_url=v.get("kibana").lower()
+                        )
+                    print(script_env)
+                    f.write('\n')
+                    f.write(f"# {k} ENV" + '\n')
+                    f.write(script_env + '\n')
 
     ''' export file'''
+    logging.info("export file now..")
     ''' output 
     # dev ENV
-    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data1:9092,data2:9092,data3:9092 --kafka_connect_url data1:8083,data2:8083,data3:8083 --zookeeper_url  data1:2181,data2:2181,data3:2181 --es_url es1:9200,es2:9200,es3:9200,es4:9200 --kibana_url kibana:5601 --interval 30 --sql "SELECT processname, status, MAX (CAST (addts AS DATE)) as addts, COUNT (*), get_db_name as dbid FROM es_pipeline_processed a WHERE addts >= TRUNC (SYSTIMESTAMP) AND status IN ('E', 'C') GROUP BY processname, status ORDER BY 3 DESC"
+    python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:bi"$"test/None --db_run false --kafka_url data1:9092,data2:9092,data3:9092 --kafka_connect_url data1:8083,data2:8083,data3:8083 --zookeeper_url  data1:2181,data2:2181,data3:2181 --es_url es1:9200,es2:9200,es3:9200,es4:9200 --kibana_url kibana:5601 --interval 30 --sql "SELECT * FROM TEST"
 
     # localhost ENV
-    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT processname, status, MAX (CAST (addts AS DATE)) as addts, COUNT (*), get_db_name as dbid FROM es_pipeline_processed a WHERE addts >= TRUNC (SYSTIMESTAMP) AND status IN ('E', 'C') GROUP BY processname, status ORDER BY 3 DESC"
+    python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:bi"$"test/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT * FROM TEST"
     '''
     export_file(hosts_dicts)
                 
@@ -165,16 +233,23 @@ def read_hosts(server_file):
 
 if __name__ == '__main__':
 
+    StartTime = datetime.datetime.now()
+
     ''' read hosts file and transform to json format'''
     hosts_dicts = read_hosts("./hosts")
     ''' generate arguments for shell script arguments for ./standalone-export-run.sh'''
 
     ''' results
     # dev ENV
-    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data1:9092,data2:9092,data3:9092 --kafka_connect_url data1:8083,data2:8083,data3:8083 --zookeeper_url  data1:2181,data2:2181,data3:2181 --es_url es1:9200,es2:9200,es3:9200,es4:9200 --kibana_url kibana:5601 --interval 30 --sql "SELECT * FROM TEST"
+    python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:bi"$"test/None --db_run false --kafka_url data1:9092,data2:9092,data3:9092 --kafka_connect_url data1:8083,data2:8083,data3:8083 --zookeeper_url  data1:2181,data2:2181,data3:2181 --es_url es1:9200,es2:9200,es3:9200,es4:9200 --kibana_url kibana:5601 --interval 30 --sql "SELECT * FROM TEST"
 
     # localhost ENV
-    python ./standalone-es-service-export.py --interface http --db_http_host tsgvm00875:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT * FROM TEST"
-
+    python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:bi"$"test/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT * FROM TEST"
+  
     '''
     transform_json_to_each_arguments(hosts_dicts)
+
+    EndTime = datetime.datetime.now()
+
+    Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
+    logging.info("# Running Time - {}".format(str(Delay_Time)))
