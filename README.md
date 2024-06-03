@@ -19,7 +19,7 @@ tar –zxvf Python-3.9.0.tgz or tar -xvf Python-3.9.0.tgz
 cd Python-3.9.0 
 ./configure --libdir=/usr/lib64 
 sudo make 
-Sudo make altinstall 
+sudo make altinstall 
 
 # python3 -m venv .venv --without-pip
 sudo yum install python3-pip
