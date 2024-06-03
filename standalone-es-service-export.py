@@ -438,14 +438,28 @@ def get_metrics_all_envs(monitoring_metrics):
         if response_spark_jobs: 
             # spark_jobs_gauge_g
             for each_job in response_spark_jobs:
-                duration = str(round(float(each_job["duration"])/(60.0*60.0*1000.0),2)) + " h"
+                duration = str(round(float(each_job["duration"])/(60.0*60.0*1000.0),2)) + " h" if 'duration' in each_job else -1
                 # logging.info(duration)
                 for k, v in each_job.items():
                     if k  == 'state':
                         if v.upper() == 'RUNNING':
-                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job["id"], cores=each_job['cores'], memoryperslave=each_job["memoryperslave"], submitdate=each_job["submitdate"], duration=duration, activeapps=each_job['name']).set(1)
+                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), 
+                                                      id=each_job.get('id',''),
+                                                      cores=each_job.get('cores',''), 
+                                                      memoryperslave=each_job.get('memoryperslave',''), 
+                                                      submitdate= each_job.get('submitdate',''),
+                                                      duration=duration, 
+                                                      activeapps=each_job.get('name','')
+                                                      ).set(1)
                         else:
-                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job["id"], cores=each_job['cores'], memoryperslave=each_job["memoryperslave"], submitdate=each_job["submitdate"], duration=duration, activeapps=each_job['name']).set(0)
+                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), 
+                                                      id=each_job.get('id',''),
+                                                      cores=each_job.get('cores',''), 
+                                                      memoryperslave=each_job.get('memoryperslave',''), 
+                                                      submitdate= each_job.get('submitdate',''),
+                                                      duration=duration, 
+                                                      activeapps=each_job.get('name','')
+                                                      ).set(0)
                     
         
         # -- Get connect listeners
@@ -485,9 +499,9 @@ def get_metrics_all_envs(monitoring_metrics):
                         continue
                     else:
                         if element['tasks'][0]['state'].upper() == 'RUNNING':
-                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element['name'], running=element['tasks'][0]['state']).set(1)
+                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(1)
                         else:
-                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element['name'], running=element['tasks'][0]['state']).set(0)
+                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(0)
 
         ''' pgrep -f logstash to get process id'''
         ''' set 1 if process id has value otherwise set 0'''
@@ -513,6 +527,7 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             ]
             '''
             StartTime = datetime.datetime.now()
+            db_transactin_time = 0.0
             
             if db_http_host:
                 '''  retrieve records from DB interface REST API URL using requests library'''
@@ -534,6 +549,7 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                 ''' db job performance through db interface restapi'''
                 # db_jobs_performance_gauge_g.labels(server_job=socket.gethostname()).set(int(resp.json["running_time"]))
                 result_json_value = resp.json()["results"]
+                db_transactin_time = resp.json()["running_time"]
          
             else:
                 ''' This logic perform to connect to DB directly and retrieve records from processd table '''
@@ -544,7 +560,11 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             EndTime = datetime.datetime.now()
             Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
             logging.info("# DB Query Running Time - {}".format(str(Delay_Time)))
-            db_jobs_performance_gauge_g.labels(server_job=socket.gethostname()).set(float(Delay_Time))
+
+            ''' calculate delay time for DB'''
+            ''' if db_http_post set db_transactin_time from HTTP interface API otherwise set Delay time'''
+            db_transactin_perfomrance = db_transactin_time if db_http_host else Delay_Time
+            db_jobs_performance_gauge_g.labels(server_job=socket.gethostname()).set(float(db_transactin_perfomrance))
 
             ''' response same format with list included dicts'''   
             logging.info(result_json_value)
