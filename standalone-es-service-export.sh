@@ -16,7 +16,7 @@ case "$1" in
         pid=`ps ax | grep -i '/standalone-es-service-export.py' | grep -v grep | awk '{print $1}'`
         if [ -n "$pid" ]
           then
-          sudo kill -9 $pid
+          kill -9 $pid
          else
           echo "$SERVICE_NAME was not Running"
         fi
