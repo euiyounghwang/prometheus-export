@@ -37,6 +37,8 @@ kafka_brokers_gauge = Gauge("kafka_brokers", "the number of kafka brokers")
 es_service_jobs_performance_gauge_g = Gauge("es_service_jobs_performance_running_metrics", 'Metrics scraped from localhost', ["server_job"])
 
 ''' gauge with dict type'''
+''' type : cluster/service'''
+all_envs_status_gauge_g = Gauge("all_envs_status_metric", 'Metrics scraped from localhost', ["server_job", "type"])
 es_nodes_gauge_g = Gauge("es_node_metric", 'Metrics scraped from localhost', ["server_job"])
 es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localhost', ["server_job"])
@@ -386,8 +388,33 @@ def get_metrics_all_envs(monitoring_metrics):
             logging.error(e)
 
 
-    try:           
-         #-- es node cluster health
+    def get_all_envs_status(all_env_status, value, type=None):
+        ''' return all_envs_status status'''
+        logging.info('get_all_envs_status - {} -> merged list : {}'.format(value, all_env_status))
+        try:
+            if type == 'kafka':
+                if value == 3:
+                    all_env_status.append(1)
+                elif value > 0 and value <3:
+                    all_env_status.append(0)
+                else:
+                    all_env_status.append(-1)
+            else:
+                if value == 1:
+                    all_env_status.append(1)
+                else:
+                    all_env_status.append(-1)
+            
+            return all_env_status
+
+        except Exception as e:
+            logging.error(e)
+
+    try: 
+        ''' all_envs_status : 0 -> red, 1 -> yellow, 2 --> green '''
+        all_env_status_memory_list = []          
+
+        #-- es node cluster health
         ''' http://localhost:9200/_cluster/health '''
         
         ''' The cluster health API returns a simple status on the health of the cluster. '''
@@ -398,14 +425,18 @@ def get_metrics_all_envs(monitoring_metrics):
             ''' get es nodes from _cluster/health api'''
             es_nodes_gauge_g.labels(socket.gethostname()).set(int(resp_es_health['number_of_nodes']))
             if resp_es_health['status'] == 'green':
+                all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list,1)
                 es_nodes_health_gauge_g.labels(socket.gethostname()).set(2)
             elif resp_es_health['status'] == 'yellow':
+                all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list,0)
                 es_nodes_health_gauge_g.labels(socket.gethostname()).set(1)
             else:
+                all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1)
                 es_nodes_health_gauge_g.labels(socket.gethostname()).set(0)
         else:
             es_nodes_health_gauge_g.labels(socket.gethostname()).set(0)
             es_nodes_gauge_g.labels(socket.gethostname()).set(0)
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1)
         #--
 
         ''' check the status of nodes on all kibana/kafka/connect except es nodes by using socket '''
@@ -427,7 +458,7 @@ def get_metrics_all_envs(monitoring_metrics):
         # es_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["es_url"]["GREEN_CNT"]))
         kibana_instance_gauge_g.labels(socket.gethostname()).set(int(response_dict["kibana_url"]["GREEN_CNT"]))
 
-
+       
         ''' first node of --kafka_url argument is a master node to get the number of jobs using http://localhost:8080/json '''
         ''' To receive spark job lists, JSON results are returned from master node 8080 port. ''' 
         ''' From the results, we get the list of spark jobs in activeapps key and transform them to metrics for exposure. '''
@@ -498,15 +529,42 @@ def get_metrics_all_envs(monitoring_metrics):
                     if 'error_code' in element:
                         continue
                     else:
-                        if element['tasks'][0]['state'].upper() == 'RUNNING':
-                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(1)
-                        else:
-                            kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(0)
+                        if len(element['tasks']) > 0:
+                            if element['tasks'][0]['state'].upper() == 'RUNNING':
+                                kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(1)
+                            else:
+                                kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(0)
 
         ''' pgrep -f logstash to get process id'''
         ''' set 1 if process id has value otherwise set 0'''
         # -- local instance based
         logstash_instance_gauge_g.labels(socket.gethostname()).set(int(get_Process_Id()))
+
+        ''' all envs update '''
+        ''' all_env_status_memory_list -1? 0? 1? at least one?'''
+        logging.info(f"all_envs_status #ES : {all_env_status_memory_list}")
+
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_url"]["GREEN_CNT"]), type='kafka')
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_connect_url"]["GREEN_CNT"]), type='kafka')
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["zookeeper_url"]["GREEN_CNT"]), type='kafka')
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kibana_url"]["GREEN_CNT"]))
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(get_Process_Id()))
+
+        logging.info(f"all_envs_status #All : {all_env_status_memory_list}")
+
+        ''' set value for node instance '''
+        if list(set(all_env_status_memory_list)) == [1]:
+            ''' green '''
+            all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(2)
+        
+        if 0 in all_env_status_memory_list:
+            ''' yellow '''
+            all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(1)
+
+        if -1 in all_env_status_memory_list:
+            ''' red '''
+            all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(0)
+            
 
     except Exception as e:
         logging.error(e)
