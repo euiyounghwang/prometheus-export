@@ -528,6 +528,9 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             '''
             StartTime = datetime.datetime.now()
             db_transactin_time = 0.0
+
+            ''' clear table for db records if host not reachable'''
+            db_jobs_gauge_g._metrics.clear()
             
             if db_http_host:
                 '''  retrieve records from DB interface REST API URL using requests library'''
@@ -568,7 +571,7 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
 
             ''' response same format with list included dicts'''   
             logging.info(result_json_value)
-            db_jobs_gauge_g._metrics.clear()
+            # db_jobs_gauge_g._metrics.clear()
             if result_json_value:
                 for element_each_json in result_json_value:
                     # logging.info('# rows : {}'.format(element_each_json))
