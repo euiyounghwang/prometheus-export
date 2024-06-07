@@ -8,7 +8,7 @@ from prometheus_client.core import (
     CounterMetricFamily,
     REGISTRY
 )
-import datetime
+import datetime, time
 import json
 import argparse
 from threading import Thread
@@ -37,7 +37,7 @@ kafka_brokers_gauge = Gauge("kafka_brokers", "the number of kafka brokers")
 es_service_jobs_performance_gauge_g = Gauge("es_service_jobs_performance_running_metrics", 'Metrics scraped from localhost', ["server_job"])
 
 ''' gauge with dict type'''
-''' type : cluster/service'''
+''' type : cluster/data_pipeline'''
 all_envs_status_gauge_g = Gauge("all_envs_status_metric", 'Metrics scraped from localhost', ["server_job", "type"])
 es_nodes_gauge_g = Gauge("es_node_metric", 'Metrics scraped from localhost', ["server_job"])
 es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
@@ -402,6 +402,8 @@ def get_metrics_all_envs(monitoring_metrics):
             else:
                 if value == 1:
                     all_env_status.append(1)
+                elif value == 0:
+                    all_env_status.append(0)
                 else:
                     all_env_status.append(-1)
             
@@ -540,7 +542,7 @@ def get_metrics_all_envs(monitoring_metrics):
         # -- local instance based
         logstash_instance_gauge_g.labels(socket.gethostname()).set(int(get_Process_Id()))
 
-        ''' all envs update '''
+        ''' all envs update for current server active'''
         ''' all_env_status_memory_list -1? 0? 1? at least one?'''
         logging.info(f"all_envs_status #ES : {all_env_status_memory_list}")
 
@@ -555,15 +557,17 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' set value for node instance '''
         if list(set(all_env_status_memory_list)) == [1]:
             ''' green '''
-            all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(2)
-        
-        if 0 in all_env_status_memory_list:
-            ''' yellow '''
             all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(1)
-
-        if -1 in all_env_status_memory_list:
+        
+        elif list(set(all_env_status_memory_list)) == [-1]:
             ''' red '''
-            all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(0)
+            all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(3)
+
+        else:
+            ''' yellow '''
+            all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(2)
+
+        ''' all envs update for current data pipeline active --> process in db_jobs_work function'''
             
 
     except Exception as e:
@@ -576,6 +580,21 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
 # def db_jobs_work(interval, db_http_host):
     ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
     ''' This thread will run if db_run as argument is true and db is online using DB interface RestAPI'''
+
+    def get_time_difference(input_str_time):
+        ''' get time difference'''
+        now_time = datetime.datetime.now()
+        print(f"audit_process_name_time - {audit_process_name_time}, : {type(audit_process_name_time)}, now_time - {now_time} : {type(now_time)}")
+        date_diff = now_time-audit_process_name_time
+        # date_diff = audit_process_name_time-now_time
+        print(f"Time Difference - {date_diff}")
+        time_hours = date_diff.seconds / 3600
+        print(f"Time Difference to hours- {time_hours}")
+
+        return time_hours
+    
+    
+    ''' db main process with sleep five mintues'''
     while True:
         try:
             # - main sql
@@ -587,9 +606,6 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             StartTime = datetime.datetime.now()
             db_transactin_time = 0.0
 
-            ''' clear table for db records if host not reachable'''
-            db_jobs_gauge_g._metrics.clear()
-            
             if db_http_host:
                 '''  retrieve records from DB interface REST API URL using requests library'''
                 logging.info("# HTTP Interface")
@@ -604,6 +620,8 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                 resp = requests.post(url="http://{}/db/get_db_query".format(db_http_host), json=request_body, timeout=20)
                 
                 if not (resp.status_code == 200):
+                    ''' clear table for db records if host not reachable'''
+                    db_jobs_gauge_g._metrics.clear()
                     return None
                 
                 logging.info(f"db/process_table - {resp}")
@@ -622,6 +640,9 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
             logging.info("# DB Query Running Time - {}".format(str(Delay_Time)))
 
+            ''' clear table for db records if host not reachable'''
+            db_jobs_gauge_g._metrics.clear()
+
             ''' calculate delay time for DB'''
             ''' if db_http_post set db_transactin_time from HTTP interface API otherwise set Delay time'''
             db_transactin_perfomrance = db_transactin_time if db_http_host else Delay_Time
@@ -630,10 +651,32 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             ''' response same format with list included dicts'''   
             logging.info(result_json_value)
             # db_jobs_gauge_g._metrics.clear()
+            is_exist_process_name_for_es = False
             if result_json_value:
                 for element_each_json in result_json_value:
                     # logging.info('# rows : {}'.format(element_each_json))
                     db_jobs_gauge_g.labels(server_job=socket.gethostname(), processname=element_each_json['PROCESSNAME'], status=element_each_json['STATUS'], cnt=element_each_json["COUNT(*)"], addts=element_each_json["ADDTS"], dbid=element_each_json['DBID']).set(1)
+                    if 'PROCESSNAME' in element_each_json:
+                        is_exist_process_name_for_es = True
+                        ''' all envs update for current data pipeline active --> process in db_jobs_work function'''
+                        if element_each_json.get('PROCESSNAME','') == 'ES_PIPELINE_UPLOAD_TEST_WM':
+                            audit_process_name_time = datetime.datetime.strptime(element_each_json.get("ADDTS",""), "%Y-%m-%d %H:%M:%S")
+                            time_difference_to_hours = get_time_difference(audit_process_name_time)
+                            ''' ES PIPELINE AUDIT PROCESS If the processing time is 30 minutes slower than the current time, we believe there may be a problem with the process.'''
+                            if time_difference_to_hours > 0.5:
+                                ''' red'''
+                                print(f"Time Difference with warining from the process - {time_difference_to_hours}")
+                                all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(2)
+                            else:
+                                ''' green'''
+                                all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(1)
+
+            ''' if ES_PIPELINE_UPLOAD_TEST_WM process doesn't exist in es_pipeline_processed table'''
+            if not is_exist_process_name_for_es:
+                ''' red'''
+                print(f"No 'ES_PIPELINE_UPLOAD_TEST_WM' Process")
+                all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(2)
+
             
         except Exception as e:
             logging.error(e)
