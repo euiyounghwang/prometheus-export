@@ -51,6 +51,10 @@ spark_jobs_gauge_g = Gauge("spark_jobs_running_metrics", 'Metrics scraped from l
 db_jobs_gauge_g = Gauge("db_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "processname", "cnt", "status", "addts", "dbid"])
 db_jobs_performance_gauge_g = Gauge("db_jobs_performance_running_metrics", 'Metrics scraped from localhost', ["server_job"])
 
+''' export failure instance list metric'''
+es_service_jobs_failure_gauge_g = Gauge("es_service_jobs_failure_running_metrics", 'Metrics scraped from localhost', ["server_job", "reason"])
+
+
 
 class oracle_database:
 
@@ -179,6 +183,9 @@ def transform_prometheus_txt_to_Json(response):
 def get_metrics_all_envs(monitoring_metrics):
     ''' get metrics from custom export for the health of kafka cluster'''
     
+    ''' save failure nodes into dict'''
+    saved_failure_dict = {}
+
     def get_service_port_alive(monitoring_metrics):
         ''' get_service_port_alive'''
         ''' 
@@ -206,6 +213,8 @@ def get_metrics_all_envs(monitoring_metrics):
                     # print("Port is not open")
                     response_sub_dict.update({each_urls[0] + ":" + each_urls[1] : "FAIL"})
                     response_sub_dict.update({"GREEN_CNT" : totalcount})
+                    ''' save failure node with a reason into saved_failure_dict'''
+                    saved_failure_dict.update({each_urls[0] : each_host + " Port closed"})
                 sock.close()
             response_dict.update({k : response_sub_dict})
             
@@ -290,6 +299,8 @@ def get_metrics_all_envs(monitoring_metrics):
                         # logging.info(f"listeners - {resp_listener}, {resp_listener.json()}")
                         listeners_list.append(resp_listener.json())
                     except Exception as e:
+                        ''' save failure node with a reason into saved_failure_dict'''
+                        saved_failure_dict.update({node : "http://{}:8083/connectors/{}/status API do not reachable".format(node, listener)})
                         pass
                 listener_apis_dict.update({node : listeners_list})
 
@@ -340,6 +351,8 @@ def get_metrics_all_envs(monitoring_metrics):
             resp = requests.get(url="http://{}:8080/json".format(master_node), timeout=5)
             
             if not (resp.status_code == 200):
+                ''' save failure node with a reason into saved_failure_dict'''
+                saved_failure_dict.update({node : "http://{}:8080/json API do not reachable".format(master_node)})
                 return None
             
             # logging.info(f"activeapps - {resp}, {resp.json()}")
@@ -361,6 +374,9 @@ def get_metrics_all_envs(monitoring_metrics):
         logging.info("Prcess - {}".format(process_handler.isProcessRunning(process_name)))
         if process_handler.isProcessRunning(process_name):
             return 1
+        
+        ''' save failure node with a reason into saved_failure_dict'''
+        saved_failure_dict.update({socket.gethostname() : "Logstash didn't run"})
         return 0
     
 
@@ -377,6 +393,8 @@ def get_metrics_all_envs(monitoring_metrics):
                 resp = requests.get(url="http://{}/_cluster/health".format(each_es_host), timeout=5)
                 
                 if not (resp.status_code == 200):
+                    ''' save failure node with a reason into saved_failure_dict'''
+                    # saved_failure_dict.update({each_es_host.split(":")[0] : each_es_host + " Port closed"})
                     continue
                 
                 logging.info(f"activeES - {resp}, {resp.json()}")
@@ -444,7 +462,7 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' check the status of nodes on all kibana/kafka/connect except es nodes by using socket '''
         ''' The es cluster is excluded because it has already been checked in get_elasticsearch_health function'''
         monitoring_metrics_cp = copy.deepcopy(monitoring_metrics)
-        del monitoring_metrics_cp["es_url"]
+        # del monitoring_metrics_cp["es_url"]
         logging.info("monitoring_metrics_cp - {}".format(json.dumps(monitoring_metrics_cp, indent=2)))
 
         ''' socket.connect_ex( <address> ) similar to the connect() method but returns an error indicator of raising an exception for errors '''
@@ -568,6 +586,12 @@ def get_metrics_all_envs(monitoring_metrics):
             all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(2)
 
         ''' all envs update for current data pipeline active --> process in db_jobs_work function'''
+
+        ''' expose failure node with a reason'''
+        logging.info(f"es_service_jobs_failure_gauge_g - {saved_failure_dict}")
+        es_service_jobs_failure_gauge_g._metrics.clear()
+        for k, v in saved_failure_dict.items():
+            es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason=v).set(0)
             
 
     except Exception as e:
@@ -657,16 +681,19 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                     # logging.info('# rows : {}'.format(element_each_json))
                     db_jobs_gauge_g.labels(server_job=socket.gethostname(), processname=element_each_json['PROCESSNAME'], status=element_each_json['STATUS'], cnt=element_each_json["COUNT(*)"], addts=element_each_json["ADDTS"], dbid=element_each_json['DBID']).set(1)
                     if 'PROCESSNAME' in element_each_json:
-                        is_exist_process_name_for_es = True
                         ''' all envs update for current data pipeline active --> process in db_jobs_work function'''
                         if element_each_json.get('PROCESSNAME','') == 'ES_PIPELINE_UPLOAD_TEST_WM':
+                            ''' set this variable if this process is working'''
+                            is_exist_process_name_for_es = True
                             audit_process_name_time = datetime.datetime.strptime(element_each_json.get("ADDTS",""), "%Y-%m-%d %H:%M:%S")
                             time_difference_to_hours = get_time_difference(audit_process_name_time)
                             ''' ES PIPELINE AUDIT PROCESS If the processing time is 30 minutes slower than the current time, we believe there may be a problem with the process.'''
                             if time_difference_to_hours > 0.5:
                                 ''' red'''
-                                print(f"Time Difference with warining from the process - {time_difference_to_hours}")
+                                logging.info(f"Time Difference with warining from the process - {time_difference_to_hours}")
                                 all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(2)
+                                ''' expose failure node with a reason'''
+                                es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="'ES_PIPELINE_UPLOAD_TEST_WM' ADDTS time is 30 minutes later than current time").set(0)
                             else:
                                 ''' green'''
                                 all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(1)
@@ -674,9 +701,10 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             ''' if ES_PIPELINE_UPLOAD_TEST_WM process doesn't exist in es_pipeline_processed table'''
             if not is_exist_process_name_for_es:
                 ''' red'''
-                print(f"No 'ES_PIPELINE_UPLOAD_TEST_WM' Process")
+                logging.info(f"No 'ES_PIPELINE_UPLOAD_TEST_WM' Process")
                 all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(2)
-
+                ''' expose failure node with a reason'''
+                es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="No 'ES_PIPELINE_UPLOAD_TEST_WM' Process").set(0)
             
         except Exception as e:
             logging.error(e)
