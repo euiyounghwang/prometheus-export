@@ -292,15 +292,25 @@ def get_metrics_all_envs(monitoring_metrics):
             for node in nodes_list:
                 listener_apis_dict.update({node : {}})
                 listeners_list = []
+                loop = 1
                 for listener in active_listner_connect:
                     try:
-                        # logging.info(f"listener_apis_dict make a call - {node} -> {listener}")
-                        resp_listener = requests.get(url="http://{}:8083/connectors/{}/status".format(node, listener), timeout=5)
-                        # logging.info(f"listeners - {resp_listener}, {resp_listener.json()}")
-                        listeners_list.append(resp_listener.json())
+                        resp_each_listener = requests.get(url="http://{}:8083/connectors/{}".format(node, listener), timeout=5)
+                        # logging.info(f"len(resp_each_listener['tasks']) - {node} -> { len(list(resp_each_listener.json()['tasks']))}")
+                        ''' If the “task” details are missing from the listener, then we probably are not processing data.'''
+                        if len(list(resp_each_listener.json()["tasks"])) > 0:
+                            # logging.info(f"listener_apis_dict make a call - {node} -> {listener}")
+                            resp_listener = requests.get(url="http://{}:8083/connectors/{}/status".format(node, listener), timeout=5)
+                            # logging.info(f"listeners - {resp_listener}, {resp_listener.json()}")
+                            listeners_list.append(resp_listener.json())
+                        else:
+                            ''' save failure node with a reason into saved_failure_dict'''
+                            saved_failure_dict.update({"{}_{}".format(node, str(loop)) : "http://{}:8083/connectors/{} tasks are missing".format(node, listener)})
+
+                        loop +=1
                     except Exception as e:
                         ''' save failure node with a reason into saved_failure_dict'''
-                        saved_failure_dict.update({node : "http://{}:8083/connectors/{}/status API do not reachable".format(node, listener)})
+                        saved_failure_dict.update({"{}_{}".format(node, str(loop))  : "http://{}:8083/connectors/{}/status API do not reachable".format(node, listener)})
                         pass
                 listener_apis_dict.update({node : listeners_list})
 
@@ -419,10 +429,13 @@ def get_metrics_all_envs(monitoring_metrics):
                     all_env_status.append(-1)
             else:
                 if value == 1:
+                    ''' green'''
                     all_env_status.append(1)
                 elif value == 0:
+                    ''' yellow'''
                     all_env_status.append(0)
                 else:
+                    ''' red'''
                     all_env_status.append(-1)
             
             return all_env_status
@@ -512,7 +525,12 @@ def get_metrics_all_envs(monitoring_metrics):
                                                       activeapps=each_job.get('name','')
                                                       ).set(0)
                     
-        
+        else:
+            ''' all envs update for current server active'''
+            ''' all_env_status_memory_list -1? 0? 1? at least one?'''
+            ''' master node spark job is not running'''
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='spark')
+
         # -- Get connect listeners
         '''
             {
@@ -554,6 +572,12 @@ def get_metrics_all_envs(monitoring_metrics):
                                 kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(1)
                             else:
                                 kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(0)
+
+        else:
+            ''' all envs update for current server active'''
+            ''' all_env_status_memory_list -1? 0? 1? at least one?'''
+            ''' master node spark job is not running'''
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='kafka_listner')
 
         ''' pgrep -f logstash to get process id'''
         ''' set 1 if process id has value otherwise set 0'''
