@@ -180,11 +180,13 @@ def transform_prometheus_txt_to_Json(response):
 
 
 
+''' save failure nodes into dict'''
+saved_failure_dict = {}
+
 def get_metrics_all_envs(monitoring_metrics):
     ''' get metrics from custom export for the health of kafka cluster'''
     
-    ''' save failure nodes into dict'''
-    saved_failure_dict = {}
+    global saved_failure_dict
 
     def get_service_port_alive(monitoring_metrics):
         ''' get_service_port_alive'''
@@ -592,7 +594,10 @@ def get_metrics_all_envs(monitoring_metrics):
                             else:
                                 kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(0)
                                 ''' add tracking logs'''
-                                saved_failure_dict.update({"{}_{}".format(host, str(loop)) : element.get('name','') + "," + element['tasks'][0]['trace']})
+                                if 'trace' in  element['tasks'][0]:
+                                    saved_failure_dict.update({"{}_{}".format(host, str(loop)) : element.get('name','') + "," + element['tasks'][0]['trace']})
+                                else:
+                                    saved_failure_dict.update({"{}_{}".format(host, str(loop)) : element.get('name','')})
                                 any_failure_listener = False
                                 loop += 1
 
@@ -842,6 +847,8 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                 # es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="No 'ES_PIPELINE_UPLOAD_TEST_WM' Process").set(0)
                 saved_failure_db_dict.update({'db-jobs' : "No 'ES_PIPELINE_UPLOAD_TEST_WM' Process"})
                 saved_status_dict.update({'es_pipeline' : 'Red'})
+
+            logging.info("\n\n")
             
         except Exception as e:
             logging.error(e)
@@ -873,7 +880,7 @@ def work(port, interval, monitoring_metrics):
     '''
     try:
         start_http_server(int(port))
-        logging.info(f"Standalone Prometheus Exporter Server started..")
+        logging.info(f"\n\nStandalone Prometheus Exporter Server started..")
 
         while True:
             StartTime = datetime.datetime.now()
@@ -884,7 +891,7 @@ def work(port, interval, monitoring_metrics):
             ''' export application processing time '''
             EndTime = datetime.datetime.now()
             Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
-            logging.info("# Export Application Running Time - {}".format(str(Delay_Time)))
+            logging.info("# Export Application Running Time - {}\n\n".format(str(Delay_Time)))
             es_service_jobs_performance_gauge_g.labels(server_job=socket.gethostname()).set(float(Delay_Time))
             
             time.sleep(interval)
@@ -904,7 +911,7 @@ def work(port, interval, monitoring_metrics):
        
 
 
-def alert_work():
+def alert_work(db_http_host):
     ''' thread for alert'''
 
     def json_read_config(path):
@@ -914,17 +921,52 @@ def alert_work():
         return data
 
     try:
-
+        global saved_failure_dict
         while True:
             ''' read config file to enable/disable to send an email'''
+            '''
             data = json_read_config("./mail/config.json")
             logging.info(f"config json file : {data}")
+            '''
+
+            # logging.info(f"\n\nmail treading working..")
+
+            ''' interface es_config_api http://localhost:8004/config/get_mail_config '''
+            es_config_host = str(db_http_host).split(":")[0]
+            logging.info(f"es_config_host : {es_config_host}")
+            resp = requests.get(url="http://{}:8004/config/get_mail_config".format(es_config_host), timeout=5)
+                
+            if not (resp.status_code == 200):
+                ''' save failure node with a reason into saved_failure_dict'''
+                logging.error(f"es_config_interface api do not reachable")
+                saved_failure_dict.update({socket.gethostname(): "es_config_interface_api do not reachable"})
+                continue
+                
+            logging.info(f"get_mail_config - {resp}, {json.dumps(resp.json(), indent=2)}")
+            data = resp.json()
 
             ''' ------------------------------------------------------'''
             ''' send an email these warning message if the status of env has an yellow or red'''
             # email_list = os.environ["EMAIL_LIST"]
-            email_list = data.get("mail_list")
+            # email_list = data.get("mail_list")
+
+            '''
+            {
+                "dev": {
+                    "mail_list": "test",
+                    "is_mailing": true
+                },
+                "localhost": {
+                    "mail_list": "test",
+                    "is_mailing": true
+                }
+            }    
+            '''
+            get_es_config_interface_api_host_key = socket.gethostname().split(".")[0]
+
+            email_list = data[get_es_config_interface_api_host_key].get("mail_list")
             logging.info(f"mail_list from shell script: {email_list}")
+            logging.info(f"is_mailing: {data[get_es_config_interface_api_host_key].get('is_mailing')}, type : {type(data[get_es_config_interface_api_host_key].get('is_mailing'))}")
 
             logging.info(f"saved_status_dict - {json.dumps(saved_status_dict, indent=2)}")
             
@@ -932,9 +974,10 @@ def alert_work():
             ''' global mememoy'''
             ''' alert message to mail with interval?'''
             if saved_thread_alert:
-                if data.get("is_mailing"):
-                    logging.info("Sending email..")
-                    send_mail(body="',' ".join(saved_thread_alert_message), env=socket.gethostname(), status_dict=saved_status_dict, to=email_list)
+                # if data.get("is_mailing"):
+                if data[get_es_config_interface_api_host_key].get("is_mailing"):
+                    logging.info("\n\nSending email..")
+                    send_mail(body="',' ".join(saved_thread_alert_message), host=get_es_config_interface_api_host_key, env=data[get_es_config_interface_api_host_key].get("env"), status_dict=saved_status_dict, to=email_list)
             ''' ------------------------------------------------------'''
             
             logging.info(f"saved_thread_alert - {saved_thread_alert}")
@@ -952,15 +995,15 @@ def alert_work():
 
 
 # Function that send email.
-def send_mail(body, env, status_dict, to):
+def send_mail(body, host, env, status_dict, to):
     ''' send mail through mailx based on python environment'''
     grafana_dashboard_url = os.environ["GRAFANA_DASHBORD_URL"]
     body = "Monitoring [ES Team Dashboard on export application]'\n\t' \
         - Grafana Dashboard URL : {}'\n\t' \
-        - Enviroment: {}'\n\t' \
+        - Enviroment: {}, Prometheus Export Application Runnig Host : {}, Export Application URL : http://{}:9115'\n\t' \
         - Server Status: {}, ES_PIPELINE Status : {}'\n\t' \
         - Alert Message : {} \
-        ".format(grafana_dashboard_url, env, status_dict.get("server_active","Green"), status_dict.get("es_pipeline","Green"), body)
+        ".format(grafana_dashboard_url, env, host, host, status_dict.get("server_active","Green"), status_dict.get("es_pipeline","Green"), body)
     
     email_user_list = to.split(",")
     print(f"email_user_list : {email_user_list}")
@@ -1110,7 +1153,7 @@ if __name__ == '__main__':
             T.append(main_th)
 
             ''' alert through mailx'''
-            mail_th = Thread(target=alert_work, args=())
+            mail_th = Thread(target=alert_work, args=(db_http_host,))
             mail_th.daemon = True
             mail_th.start()
             T.append(mail_th)

@@ -191,3 +191,26 @@ python ./standalone-es-service-export.py --interface http --db_http_host localho
 # localhost ENV
 python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:bi"$"reporting/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT * FROM TEST*"
 ```
+
+
+### Service Maintance
+- Kafka Service
+```bash
+ /apps/kafka_2.11-0.11.0.0/bin/kafka-topics.sh --describe --zookeeper localhost.am.co.gxo.com:2181,localhost.am.co.gxo.com:2181,localhost.am.co.gxo.com:2181 --topic ELASTIC_PIPELINE_QUEUE
+ curl -X POST http://localhost:8083/connectors/epq_wmxd_jdbc/tasks/0/restart
+ ```
+
+
+### Services
+- Reference : https://whiteklay.com/kafka/
+- What Is Kafka Connect
+Kafka Connect is a framework which connects Kafka with external Systems. It helps to move the data in and out of the Kafka. Connect makes it simple to use existing connector.
+Kafka Connect helps use to perform Extract (E) and Transform(T) of ETL Process. Connect contains the set of connectors which allows to import and export the data. 
+
+Cconfiguration for common source and sink Connectors. Connectors comes in two flavors:
+
+- Source Connector
+Source Connector imports data from other System to Kafka Topic. For eg; Source Connector can ingest entire databases and stream table updates to Kafka topics.
+
+- Sink Connector
+Sink Connector exports data from Kafka topic to other Systems. For eg; Sink Connector can deliver data from Kafka topic to an HDFS File.
