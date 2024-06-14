@@ -119,7 +119,6 @@ def get_metrics_all_envs(host, urls):
         
                         
 
-
 def work(port, interval, host, urls):
     ''' Threading work'''
     '''
