@@ -19,6 +19,12 @@ else
     source $VENV/Scripts/activate
 fi
 
+
+# -- Export Variable
+export GRAFANA_DASHBORD_URL="http://localhost:3000/d/adm08055cf3lsa/es-team-dashboard?orgId=1'&'from=now-5m'&'to=now'&'refresh=5s"
+export EMAIL_LIST="test@mail.com"
+# -- 
+
 # -- standalone type
 # local
 # server : --first node of kafka_url is a master node to get the number of jobs using http://localhost:8080/json

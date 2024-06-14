@@ -52,7 +52,7 @@ db_jobs_gauge_g = Gauge("db_jobs_running_metrics", 'Metrics scraped from localho
 db_jobs_performance_gauge_g = Gauge("db_jobs_performance_running_metrics", 'Metrics scraped from localhost', ["server_job"])
 
 ''' export failure instance list metric'''
-es_service_jobs_failure_gauge_g = Gauge("es_service_jobs_failure_running_metrics", 'Metrics scraped from localhost', ["server_job", "reason"])
+es_service_jobs_failure_gauge_g = Gauge("es_service_jobs_failure_running_metrics", 'Metrics scraped from localhost', ["server_job", "host", "reason"])
 
 
 
@@ -214,7 +214,7 @@ def get_metrics_all_envs(monitoring_metrics):
                     response_sub_dict.update({each_urls[0] + ":" + each_urls[1] : "FAIL"})
                     response_sub_dict.update({"GREEN_CNT" : totalcount})
                     ''' save failure node with a reason into saved_failure_dict'''
-                    saved_failure_dict.update({each_urls[0] : each_host + " Port closed"})
+                    saved_failure_dict.update({each_urls[0] : "[{}] ".format(k) + each_host + " Port closed"})
                 sock.close()
             response_dict.update({k : response_sub_dict})
             
@@ -261,19 +261,28 @@ def get_metrics_all_envs(monitoring_metrics):
             active_listner_connect = []
             
             for each_node in nodes_list:
-                # -- make a call to master node to get the information of activeapps
-                logging.info(each_node)
-                resp = requests.get(url="http://{}:8083/connectors".format(each_node), timeout=5)
-                    
-                # logging.info(f"activeapps - {resp}, {resp.status_code}, {resp.json()}")
-                logging.info(f"activeconnectors/listeners - {resp}, {resp.status_code}")
-                if not (resp.status_code == 200):
-                    continue
-                else:
-                #    active_listner_connect.update({each_node : resp.json()})
-                    active_listner_connect = resp.json()
-                    break
-            logging.info(f"active_listner_list - {json.dumps(active_listner_connect, indent=2)}")
+                try:
+                    # -- make a call to master node to get the information of activeapps
+                    logging.info(each_node)
+                    resp = requests.get(url="http://{}:8083/connectors".format(each_node), timeout=5)
+                        
+                    # logging.info(f"activeapps - {resp}, {resp.status_code}, {resp.json()}")
+                    logging.info(f"activeconnectors/listeners - {resp}, {resp.status_code}")
+                    if not (resp.status_code == 200):
+                        continue
+                    else:
+                    #    active_listner_connect.update({each_node : resp.json()})
+                        active_listner_connect = resp.json()
+                        break
+                except Exception as e:
+                    pass
+
+            logging.info(f"active_listener_list - {json.dumps(active_listner_connect, indent=2)}")
+
+            ''' add tracking logs and save failure node with a reason into saved_failure_dict'''
+            if not active_listner_connect:
+                saved_failure_dict.update({",".join(nodes_list): "http://{}:8083/connectors API do not reachable".format(nodes_list)})
+                return None
             
             '''
             # Master node
@@ -295,6 +304,7 @@ def get_metrics_all_envs(monitoring_metrics):
                 loop = 1
                 for listener in active_listner_connect:
                     try:
+                        """
                         resp_each_listener = requests.get(url="http://{}:8083/connectors/{}".format(node, listener), timeout=5)
                         # logging.info(f"len(resp_each_listener['tasks']) - {node} -> { len(list(resp_each_listener.json()['tasks']))}")
                         ''' If the “task” details are missing from the listener, then we probably are not processing data.'''
@@ -306,7 +316,10 @@ def get_metrics_all_envs(monitoring_metrics):
                         else:
                             ''' save failure node with a reason into saved_failure_dict'''
                             saved_failure_dict.update({"{}_{}".format(node, str(loop)) : "http://{}:8083/connectors/{} tasks are missing".format(node, listener)})
-
+                        """
+                        resp_listener = requests.get(url="http://{}:8083/connectors/{}/status".format(node, listener), timeout=5)
+                        listeners_list.append(resp_listener.json())
+                        
                         loop +=1
                     except Exception as e:
                         ''' save failure node with a reason into saved_failure_dict'''
@@ -361,8 +374,8 @@ def get_metrics_all_envs(monitoring_metrics):
             resp = requests.get(url="http://{}:8080/json".format(master_node), timeout=5)
             
             if not (resp.status_code == 200):
-                ''' save failure node with a reason into saved_failure_dict'''
-                saved_failure_dict.update({node : "http://{}:8080/json API do not reachable".format(master_node)})
+                ''' add tracking logs and save failure node with a reason into saved_failure_dict'''
+                saved_failure_dict.update({node : "spark cluster - http://{}:8080/json API do not reachable".format(master_node)})
                 return None
             
             # logging.info(f"activeapps - {resp}, {resp.json()}")
@@ -445,7 +458,7 @@ def get_metrics_all_envs(monitoring_metrics):
 
     try: 
         ''' all_envs_status : 0 -> red, 1 -> yellow, 2 --> green '''
-        all_env_status_memory_list = []          
+        all_env_status_memory_list = []
 
         #-- es node cluster health
         ''' http://localhost:9200/_cluster/health '''
@@ -561,23 +574,58 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' Prometheus periodically takes exposed metrics and exposes them on the graph. '''
         response_listeners = get_kafka_connector_listeners(monitoring_metrics.get("kafka_url", ""))
         kafka_connect_listeners_gauge_g._metrics.clear()
+        is_running_one_of_kafka_listner = False
+        any_failure_listener = True
+        host_list = []
         if response_listeners: 
             for host in response_listeners.keys():
+                loop = 0
+                host_list.append(host)
                 for element in response_listeners[host]:
                     if 'error_code' in element:
                         continue
                     else:
                         if len(element['tasks']) > 0:
                             if element['tasks'][0]['state'].upper() == 'RUNNING':
+                                is_running_one_of_kafka_listner = True
                                 kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(1)
                             else:
                                 kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(0)
+                                ''' add tracking logs'''
+                                saved_failure_dict.update({"{}_{}".format(host, str(loop)) : element.get('name','') + "," + element['tasks'][0]['trace']})
+                                any_failure_listener = False
+                                loop += 1
 
         else:
             ''' all envs update for current server active'''
             ''' all_env_status_memory_list -1? 0? 1? at least one?'''
             ''' master node spark job is not running'''
             all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='kafka_listner')
+
+        logging.info(f"is_running_one_of_kafka_listner - {is_running_one_of_kafka_listner}, host_list : {host_list}")
+
+        ''' get all kafka hosts'''
+        kafka_node_hosts = monitoring_metrics.get("kafka_url", "").split(",")
+        logging.info(f"kafka_node_hosts - {kafka_node_hosts}")
+
+        if kafka_node_hosts:
+            kafka_nodes_list = [node.split(":")[0] for node in kafka_node_hosts]
+        else:
+            kafka_nodes_list = ""
+
+        logging.info(f"get all kafka hosts - {kafka_nodes_list}")
+        ''' add tracking'''
+        if not is_running_one_of_kafka_listner:
+            ''' all envs update for current server active'''
+            ''' all_env_status_memory_list -1? 0? 1? at least one?'''
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='kafka_listner')
+            saved_failure_dict.update({",".join(kafka_nodes_list) : "all Kafka listeners are not active process running.."})
+
+        ''' add tracking'''
+        ''' if one of listener is not running with running status'''
+        if not any_failure_listener:
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='kafka_listner')
+                                
 
         ''' pgrep -f logstash to get process id'''
         ''' set 1 if process id has value otherwise set 0'''
@@ -597,6 +645,8 @@ def get_metrics_all_envs(monitoring_metrics):
         logging.info(f"all_envs_status #All : {all_env_status_memory_list}")
 
         ''' set value for node instance '''
+        global saved_status_dict
+
         if list(set(all_env_status_memory_list)) == [1]:
             ''' green '''
             all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(1)
@@ -604,31 +654,85 @@ def get_metrics_all_envs(monitoring_metrics):
         elif list(set(all_env_status_memory_list)) == [-1]:
             ''' red '''
             all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(3)
+            ''' update gloabl variable for alert email'''
+            saved_status_dict.update({'server_active' : 'Red'})
 
         else:
             ''' yellow '''
             all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(2)
+            ''' update gloabl variable for alert email'''
+            saved_status_dict.update({'server_active' : 'Yellow'})
 
         ''' all envs update for current data pipeline active --> process in db_jobs_work function'''
 
         ''' expose failure node with a reason'''
-        logging.info(f"es_service_jobs_failure_gauge_g - {saved_failure_dict}")
-        es_service_jobs_failure_gauge_g._metrics.clear()
-        for k, v in saved_failure_dict.items():
-            es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason=v).set(0)
+        logging.info(f"[metrtics] es_service_jobs_failure_gauge_g - {saved_failure_dict}")
+        logging.info(f"[db] es_service_jobs_failure_gauge_g - {saved_failure_db_dict}")
+        
+        def remove_special_char(input_str):
+            ''' remove special char'''
+            special_char = '_'
+            if special_char not in input_str:
+                return input_str
             
+            return str(input_str).split(special_char)[0]
+
+        ''' Warning logs clear'''
+        es_service_jobs_failure_gauge_g._metrics.clear()
+
+        ''' metric threads'''
+        failure_message = []
+        for k, v in saved_failure_dict.items():
+            es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(),  host=remove_special_char(k), reason=v).set(0)
+            failure_message.append(v)
+       
+        ''' db threads'''
+        for k, v in saved_failure_db_dict.items():
+            ''' host_ remove'''
+            es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), host=remove_special_char(k), reason=v).set(0)
+            failure_message.append(v)
+
+        ''' ------------------------------------------------------'''
+        ''' send an email these warning message if the status of env has an yellow or red'''
+        # email_list = os.environ["EMAIL_LIST"]
+        # logging.info(f"mail_list from shell script: {email_list}")
+        
+        ''' if server status is yellow or red'''
+        global saved_thread_alert, saved_thread_alert_message
+        if not list(set(all_env_status_memory_list)) == [1] or saved_failure_db_dict:
+            ''' if failure mesage has something'''
+            if failure_message:
+                ''' Call function to send an email'''
+                # send_mail(body="',' ".join(failure_message), env=socket.gethostname(), status='Yellow', to=email_list)
+                saved_thread_alert = True
+                saved_thread_alert_message = failure_message
+        else:
+            saved_thread_alert = False
+        ''' ------------------------------------------------------'''
+        
+        logging.info(f"saved_thread_alert - {saved_thread_alert}")
+        logging.info(f"saved_thread_alert_message - {saved_thread_alert_message}")
+        logging.info(f"saved_status_dict - {saved_status_dict}")
 
     except Exception as e:
         logging.error(e)
 
 
+''' global mememoy'''
+''' alert message to mail with interval?'''
+saved_thread_alert = False
+saved_thread_alert_message = []
+saved_status_dict = {}
 
+
+''' dict memory for db failrue'''
+saved_failure_db_dict = {}
 
 def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
 # def db_jobs_work(interval, db_http_host):
     ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
     ''' This thread will run if db_run as argument is true and db is online using DB interface RestAPI'''
-
+    
     def get_time_difference(input_str_time):
         ''' get time difference'''
         now_time = datetime.datetime.now()
@@ -641,8 +745,9 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
 
         return time_hours
     
-    
+
     ''' db main process with sleep five mintues'''
+    global saved_status_dict
     while True:
         try:
             # - main sql
@@ -683,6 +788,9 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                 logging.info("# DB Interface Directly")
                 result_json_value = database_object.excute_oracle_query(sql)
 
+            ''' clear saved_failure_db_dict '''
+            saved_failure_db_dict.clear()
+
             ''' DB processing time '''
             EndTime = datetime.datetime.now()
             Delay_Time = str((EndTime - StartTime).seconds) + '.' + str((EndTime - StartTime).microseconds).zfill(6)[:2]
@@ -716,8 +824,11 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                                 ''' red'''
                                 logging.info(f"Time Difference with warining from the process - {time_difference_to_hours}")
                                 all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(2)
+                                ''' update gloabl variable for alert email'''
+                                saved_status_dict.update({'es_pipeline' : 'Red'})
                                 ''' expose failure node with a reason'''
-                                es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="'ES_PIPELINE_UPLOAD_TEST_WM' ADDTS time is 30 minutes later than current time").set(0)
+                                # es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="'ES_PIPELINE_UPLOAD_TEST_WM' ADDTS time is 30 minutes later than current time").set(0)
+                                saved_failure_db_dict.update({element_each_json.get('DBID', 'db_jobs') : "ES_PIPELINE_UPLOAD_TEST_WM' ADDTS time is 30 minutes later than current time"})
                             else:
                                 ''' green'''
                                 all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(1)
@@ -728,7 +839,9 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                 logging.info(f"No 'ES_PIPELINE_UPLOAD_TEST_WM' Process")
                 all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(2)
                 ''' expose failure node with a reason'''
-                es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="No 'ES_PIPELINE_UPLOAD_TEST_WM' Process").set(0)
+                # es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="No 'ES_PIPELINE_UPLOAD_TEST_WM' Process").set(0)
+                saved_failure_db_dict.update({'db-jobs' : "No 'ES_PIPELINE_UPLOAD_TEST_WM' Process"})
+                saved_status_dict.update({'es_pipeline' : 'Red'})
             
         except Exception as e:
             logging.error(e)
@@ -789,6 +902,90 @@ def work(port, interval, monitoring_metrics):
     except (KeyboardInterrupt, SystemExit):
         logging.info("#Interrupted..")
        
+
+
+def alert_work():
+    ''' thread for alert'''
+
+    def json_read_config(path):
+        ''' read config file with option'''
+        with open(path, "r") as read_file:
+            data = json.load(read_file)
+        return data
+
+    try:
+
+        while True:
+            ''' read config file to enable/disable to send an email'''
+            data = json_read_config("./mail/config.json")
+            logging.info(f"config json file : {data}")
+
+            ''' ------------------------------------------------------'''
+            ''' send an email these warning message if the status of env has an yellow or red'''
+            # email_list = os.environ["EMAIL_LIST"]
+            email_list = data.get("mail_list")
+            logging.info(f"mail_list from shell script: {email_list}")
+
+            logging.info(f"saved_status_dict - {json.dumps(saved_status_dict, indent=2)}")
+            
+            ''' Call function to send an email'''
+            ''' global mememoy'''
+            ''' alert message to mail with interval?'''
+            if saved_thread_alert:
+                if data.get("is_mailing"):
+                    logging.info("Sending email..")
+                    send_mail(body="',' ".join(saved_thread_alert_message), env=socket.gethostname(), status_dict=saved_status_dict, to=email_list)
+            ''' ------------------------------------------------------'''
+            
+            logging.info(f"saved_thread_alert - {saved_thread_alert}")
+            logging.info(f"saved_thread_alert_message - {saved_thread_alert_message}")
+            
+            ''' every one day to send an alert email'''
+            # time.sleep(60*60*24)
+            ''' every one hour to send an alert email'''
+            time.sleep(60*60)
+            # time.sleep(60)
+
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("#Interrupted..")
+
+
+
+# Function that send email.
+def send_mail(body, env, status_dict, to):
+    ''' send mail through mailx based on python environment'''
+    grafana_dashboard_url = os.environ["GRAFANA_DASHBORD_URL"]
+    body = "Monitoring [ES Team Dashboard on export application]'\n\t' \
+        - Grafana Dashboard URL : {}'\n\t' \
+        - Enviroment: {}'\n\t' \
+        - Server Status: {}, ES_PIPELINE Status : {}'\n\t' \
+        - Alert Message : {} \
+        ".format(grafana_dashboard_url, env, status_dict.get("server_active","Green"), status_dict.get("es_pipeline","Green"), body)
+    
+    email_user_list = to.split(",")
+    print(f"email_user_list : {email_user_list}")
+    """
+    for user in email_user_list:
+        print(user)
+        cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + "-c a@test.mail " + to
+        result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        output, errors = result.communicate()
+        if output:
+            print(f"Send mail to user : {user}, output : {output}")
+        if errors:
+            print(errors)
+    """
+
+    # cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + "-c a@test.mail " + to
+    cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + to
+    result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    output, errors = result.communicate()
+    if output:
+        print(f"Send mail output : {output}")
+    if errors:
+        print(errors)
+
+
 
 
 if __name__ == '__main__':
@@ -906,10 +1103,18 @@ if __name__ == '__main__':
         
         ''' es/kafka/kibana/logstash prcess check thread'''
         for host in ['localhost']:
-            th1 = Thread(target=work, args=(int(port), int(interval), monitoring_metrics))
-            th1.daemon = True
-            th1.start()
-            T.append(th1)
+            ''' main process to collect metrics'''
+            main_th = Thread(target=work, args=(int(port), int(interval), monitoring_metrics))
+            main_th.daemon = True
+            main_th.start()
+            T.append(main_th)
+
+            ''' alert through mailx'''
+            mail_th = Thread(target=alert_work, args=())
+            mail_th.daemon = True
+            mail_th.start()
+            T.append(mail_th)
+
         
         ''' Set DB connection to validate the status of data pipelines after restart kafka cluster when security patching '''
         ''' We can see the metrics with processname and addts fieds if they are working to process normaly'''
