@@ -942,13 +942,17 @@ def alert_work(db_http_host):
                 saved_failure_dict.update({socket.gethostname(): "es_config_interface_api do not reachable"})
                 continue
                 
-            logging.info(f"get_mail_config - {resp}, {json.dumps(resp.json(), indent=2)}")
+            # logging.info(f"get_mail_config - {resp}, {json.dumps(resp.json(), indent=2)}")
+            logging.info(f"get_mail_config - {resp}, {resp.json()}")
             data = resp.json()
 
             ''' ------------------------------------------------------'''
             ''' send an email these warning message if the status of env has an yellow or red'''
             # email_list = os.environ["EMAIL_LIST"]
             # email_list = data.get("mail_list")
+
+            thread_interval = int(data.get("thread_interval"))
+            logging.info(f"get_mail_config [thread_interval- {thread_interval}")
 
             '''
             {
@@ -986,8 +990,9 @@ def alert_work(db_http_host):
             ''' every one day to send an alert email'''
             # time.sleep(60*60*24)
             ''' every one hour to send an alert email'''
-            time.sleep(60*60)
+            # time.sleep(60*60)
             # time.sleep(60)
+            time.sleep(60*thread_interval)
 
     except (KeyboardInterrupt, SystemExit):
         logging.info("#Interrupted..")
