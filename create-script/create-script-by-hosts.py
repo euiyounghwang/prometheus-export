@@ -231,6 +231,46 @@ def read_hosts(server_file):
     return hosts_dicts
 
 
+def export_es_configuration(hosts_dicts):
+    logging.info(f"export_es_configuration - {json.dumps(hosts_dicts, indent=2)}")
+
+    try:
+        from collections import defaultdict 
+
+        hosts_list_for_logstash_dict = {}
+        for key, value in hosts_dicts.items():
+            for element in value:
+                for k, v in element.items():
+                    if 'logstash' in str(k).lower():
+                        hosts_list_for_logstash_dict.update({key : v.lower()})
+
+        logging.info(f"logstash list : {json.dumps(hosts_list_for_logstash_dict, indent=2)}")
+
+        ''' making json es config json file'''
+        
+        es_configuration = defaultdict()
+        for k, v in hosts_list_for_logstash_dict.items():
+            es_configuration.update({v : {
+                "mail_list" : "euiyoung.hwang@gxo.com",
+                "env": k,
+                "is_mailing" : True
+            }})
+
+        logging.info(f"es_configuration : {json.dumps(es_configuration, indent=2)}")
+
+        ''' Serializing json '''
+        json_object = json.dumps(es_configuration, indent=4)
+        
+        ''' export file'''
+        with open("./config.json", "w") as f:
+            f.write(json_object)
+
+
+    except Exception as e:
+        logging.error(e)
+
+
+
 if __name__ == '__main__':
 
     StartTime = datetime.datetime.now()
@@ -247,7 +287,12 @@ if __name__ == '__main__':
     python ./standalone-es-service-export.py --interface http --db_http_host localhost:8002 --url jdbc:oracle:thin:bi"$"test/None --db_run false --kafka_url data11:9092,data21:9092,data31:9092 --kafka_connect_url data11:8083,data21:8083,data31:8083 --zookeeper_url  data11:2181,data21:2181,data31:2181 --es_url es11:9200,es21:9200,es31:9200,es41:9200,es51:9200 --kibana_url kibana1:5601 --interval 30 --sql "SELECT * FROM TEST"
   
     '''
-    transform_json_to_each_arguments(hosts_dicts)
+
+    ''' create script for prometheus export application as arguments'''
+    # transform_json_to_each_arguments(hosts_dicts)
+
+    ''' export es_configuration_json file'''
+    export_es_configuration(hosts_dicts)
 
     EndTime = datetime.datetime.now()
 
