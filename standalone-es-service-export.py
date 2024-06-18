@@ -1010,7 +1010,7 @@ def alert_work(db_http_host):
                 # if data.get("is_mailing"):
                 if data[get_es_config_interface_api_host_key].get("is_mailing"):
                     logging.info("\n\nSending email..")
-                    send_mail(body="',' ".join(saved_thread_alert_message), host=get_es_config_interface_api_host_key, env=data[get_es_config_interface_api_host_key].get("env"), status_dict=saved_status_dict, to=email_list)
+                    send_mail(body="\n\t".join(saved_thread_alert_message), host=get_es_config_interface_api_host_key, env=data[get_es_config_interface_api_host_key].get("env"), status_dict=saved_status_dict, to=email_list)
             ''' ------------------------------------------------------'''
             
             logging.info(f"saved_thread_alert - {saved_thread_alert}")
@@ -1030,14 +1030,21 @@ def alert_work(db_http_host):
 
 # Function that send email.
 def send_mail(body, host, env, status_dict, to):
+
+    def cleanText(readData):
+        text = re.sub('[-=+,#/\?:^$.@*\"※~&%ㆍ!』\\‘|\[\]\(\)\<\>`\'…》]', '', readData)
+        return text
+
     try:
         ''' send mail through mailx based on python environment'''
         grafana_dashboard_url = os.environ["GRAFANA_DASHBOARD_URL"]
         
         ''' remove special characters'''
         # body = body.replace('(', "'('").replace(')', "')'")
-        body = body.replace('\n\t', " ").replace('(', "").replace(')', "").replace('\n', " ")
-        body = re.sub(r"[^\uAC00-\uD7A30-9a-zA-Z\s]", "", body)
+        # body = body.replace('\n\t', " ").replace('(', "").replace(')', "").replace('\n', " ")
+        # body = re.sub(r"[^\uAC00-\uD7A30-9a-zA-Z\s]", " ", body)
+        # body = cleanText(body)
+        body = body.encode('utf-8')
         logging.info(f"send_mail -> Mail Alert message : {body}")
     
         body = "Monitoring [ES Team Dashboard on export application]'\n\t' \
