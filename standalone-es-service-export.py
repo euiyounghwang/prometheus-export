@@ -20,6 +20,7 @@ import json
 import copy
 import jaydebeapi
 import jpype
+import re
 
 # logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -45,6 +46,7 @@ kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localho
 kafka_connect_nodes_gauge_g = Gauge("kafka_connect_nodes_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_connect_listeners_gauge_g = Gauge("kafka_connect_listeners_metric", 'Metrics scraped from localhost', ["server_job", "host", "name", "running"])
 zookeeper_nodes_gauge_g = Gauge("zookeeper_health_metric", 'Metrics scraped from localhost', ["server_job"])
+spark_nodes_gauge_g = Gauge("spark_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kibana_instance_gauge_g = Gauge("kibana_health_metric", 'Metrics scraped from localhost', ["server_job"])
 logstash_instance_gauge_g = Gauge("logstash_health_metric", 'Metrics scraped from localhost', ["server_job"])
 spark_jobs_gauge_g = Gauge("spark_jobs_running_metrics", 'Metrics scraped from localhost', ["server_job", "id", "cores", "memoryperslave", "submitdate", "duration", "activeapps"])
@@ -366,6 +368,10 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' get_spark_jobs - localhost:9092,localhost:9092,localhost:9092 '''
         ''' first node of --kafka_url argument is a master node to get the number of jobs using http://localhost:8080/json '''
         try:
+
+            ''' clear spark nodes health'''
+            spark_nodes_gauge_g.clear()
+
             if not node:
                 return None
             logging.info(f"get_spark_jobs - {node}")
@@ -378,8 +384,12 @@ def get_metrics_all_envs(monitoring_metrics):
             if not (resp.status_code == 200):
                 ''' add tracking logs and save failure node with a reason into saved_failure_dict'''
                 saved_failure_dict.update({node : "spark cluster - http://{}:8080/json API do not reachable".format(master_node)})
+                spark_nodes_gauge_g.labels(server_job=socket.gethostname()).set(0)
                 return None
             
+            ''' expose metrics spark node health is active'''
+            spark_nodes_gauge_g.labels(server_job=socket.gethostname()).set(1)
+
             # logging.info(f"activeapps - {resp}, {resp.json()}")
             resp_working_job = resp.json().get("activeapps", "")
             # response_activeapps = []
@@ -423,6 +433,9 @@ def get_metrics_all_envs(monitoring_metrics):
                     continue
                 
                 logging.info(f"activeES - {resp}, {resp.json()}")
+                ''' log if one of ES nodes goes down'''
+                if int(resp.json().get("unassigned_shards")) > 0:
+                    saved_failure_dict.update({socket.gethostname() : "[elasticsearch exception] The number of unassiged shards : {}".format(resp.json().get("unassigned_shards"))})
                 return resp.json()
                 
             return None
@@ -431,17 +444,27 @@ def get_metrics_all_envs(monitoring_metrics):
             logging.error(e)
 
 
-    def get_all_envs_status(all_env_status, value, type=None):
+    def get_all_envs_status(all_env_status, value, types=None):
         ''' return all_envs_status status'''
-        logging.info('get_all_envs_status - {} -> merged list : {}'.format(value, all_env_status))
+        logging.info('type : {}, get_all_envs_status"s value - {} -> merged list : {}'.format(types, value, all_env_status))
         try:
-            if type == 'kafka':
+            if types == 'kafka':
                 if value == 3:
+                    ''' green'''
                     all_env_status.append(1)
                 elif value > 0 and value <3:
+                    ''' yellow'''
                     all_env_status.append(0)
                 else:
+                    ''' red'''
                     all_env_status.append(-1)
+            elif types == 'logstash':
+                if value == 1:
+                   ''' green'''
+                   all_env_status.append(1)
+                else:
+                   ''' red'''
+                   all_env_status.append(-1)
             else:
                 if value == 1:
                     ''' green'''
@@ -461,6 +484,10 @@ def get_metrics_all_envs(monitoring_metrics):
     try: 
         ''' all_envs_status : 0 -> red, 1 -> yellow, 2 --> green '''
         all_env_status_memory_list = []
+
+        ''' clear logs'''
+        if not saved_failure_db_dict:
+            saved_failure_dict.clear()
 
         #-- es node cluster health
         ''' http://localhost:9200/_cluster/health '''
@@ -515,6 +542,7 @@ def get_metrics_all_envs(monitoring_metrics):
 
         spark_jobs_gauge_g._metrics.clear()
         if response_spark_jobs: 
+            ''' list of spark jobs shows'''
             # spark_jobs_gauge_g
             for each_job in response_spark_jobs:
                 duration = str(round(float(each_job["duration"])/(60.0*60.0*1000.0),2)) + " h" if 'duration' in each_job else -1
@@ -544,7 +572,7 @@ def get_metrics_all_envs(monitoring_metrics):
             ''' all envs update for current server active'''
             ''' all_env_status_memory_list -1? 0? 1? at least one?'''
             ''' master node spark job is not running'''
-            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='spark')
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, types='spark')
 
         # -- Get connect listeners
         '''
@@ -605,7 +633,7 @@ def get_metrics_all_envs(monitoring_metrics):
             ''' all envs update for current server active'''
             ''' all_env_status_memory_list -1? 0? 1? at least one?'''
             ''' master node spark job is not running'''
-            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='kafka_listner')
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, types='kafka_listner')
 
         logging.info(f"is_running_one_of_kafka_listner - {is_running_one_of_kafka_listner}, host_list : {host_list}")
 
@@ -623,13 +651,13 @@ def get_metrics_all_envs(monitoring_metrics):
         if not is_running_one_of_kafka_listner:
             ''' all envs update for current server active'''
             ''' all_env_status_memory_list -1? 0? 1? at least one?'''
-            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='kafka_listner')
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, types='kafka_listner')
             saved_failure_dict.update({",".join(kafka_nodes_list) : "all Kafka listeners are not active process running.."})
 
         ''' add tracking'''
         ''' if one of listener is not running with running status'''
         if not any_failure_listener:
-            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, type='kafka_listner')
+            all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, types='kafka_listner')
                                 
 
         ''' pgrep -f logstash to get process id'''
@@ -641,11 +669,11 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' all_env_status_memory_list -1? 0? 1? at least one?'''
         logging.info(f"all_envs_status #ES : {all_env_status_memory_list}")
 
-        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_url"]["GREEN_CNT"]), type='kafka')
-        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_connect_url"]["GREEN_CNT"]), type='kafka')
-        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["zookeeper_url"]["GREEN_CNT"]), type='kafka')
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_url"]["GREEN_CNT"]), types='kafka')
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_connect_url"]["GREEN_CNT"]), types='kafka')
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["zookeeper_url"]["GREEN_CNT"]), types='kafka')
         all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kibana_url"]["GREEN_CNT"]))
-        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(get_Process_Id()))
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(get_Process_Id()), types='logstash')
 
         logging.info(f"all_envs_status #All : {all_env_status_memory_list}")
 
@@ -716,7 +744,7 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' ------------------------------------------------------'''
         
         logging.info(f"saved_thread_alert - {saved_thread_alert}")
-        logging.info(f"saved_thread_alert_message - {saved_thread_alert_message}")
+        # logging.info(f"saved_thread_alert_message - {saved_thread_alert_message}")
         logging.info(f"saved_status_dict - {saved_status_dict}")
 
     except Exception as e:
@@ -952,7 +980,8 @@ def alert_work(db_http_host):
             # email_list = data.get("mail_list")
 
             thread_interval = int(data.get("thread_interval"))
-            logging.info(f"get_mail_config [thread_interval- {thread_interval}")
+            logging.info(f"get_mail_config [thread_interval] - {thread_interval}")
+            logging.info(f"get_dashbaord_from_shell- {os.environ['GRAFANA_DASHBOARD_URL']}")
 
             '''
             {
@@ -985,7 +1014,7 @@ def alert_work(db_http_host):
             ''' ------------------------------------------------------'''
             
             logging.info(f"saved_thread_alert - {saved_thread_alert}")
-            logging.info(f"saved_thread_alert_message - {saved_thread_alert_message}")
+            # logging.info(f"saved_thread_alert_message - {saved_thread_alert_message}")
             
             ''' every one day to send an alert email'''
             # time.sleep(60*60*24)
@@ -1001,37 +1030,47 @@ def alert_work(db_http_host):
 
 # Function that send email.
 def send_mail(body, host, env, status_dict, to):
-    ''' send mail through mailx based on python environment'''
-    grafana_dashboard_url = os.environ["GRAFANA_DASHBORD_URL"]
-    body = "Monitoring [ES Team Dashboard on export application]'\n\t' \
-        - Grafana Dashboard URL : {}'\n\t' \
-        - Enviroment: {}, Prometheus Export Application Runnig Host : {}, Export Application URL : http://{}:9115'\n\t' \
-        - Server Status: {}, ES_PIPELINE Status : {}'\n\t' \
-        - Alert Message : {} \
-        ".format(grafana_dashboard_url, env, host, host, status_dict.get("server_active","Green"), status_dict.get("es_pipeline","Green"), body)
+    try:
+        ''' send mail through mailx based on python environment'''
+        grafana_dashboard_url = os.environ["GRAFANA_DASHBOARD_URL"]
+        
+        ''' remove special characters'''
+        # body = body.replace('(', "'('").replace(')', "')'")
+        body = body.replace('\n\t', " ").replace('(', "").replace(')', "").replace('\n', " ")
+        body = re.sub(r"[^\uAC00-\uD7A30-9a-zA-Z\s]", "", body)
+        logging.info(f"send_mail -> Mail Alert message : {body}")
     
-    email_user_list = to.split(",")
-    print(f"email_user_list : {email_user_list}")
-    """
-    for user in email_user_list:
-        print(user)
-        cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + "-c a@test.mail " + to
+        body = "Monitoring [ES Team Dashboard on export application]'\n\t' \
+            - Grafana Dashboard URL : {}'\n\t' \
+            - Enviroment: {}, Prometheus Export Application Runnig Host : {}, Export Application URL : http://{}:9115'\n\t' \
+            - Server Status: {}, ES_PIPELINE Status : {}'\n\t' \
+            - Alert Message : {} \
+            ".format(grafana_dashboard_url, env, host, host, status_dict.get("server_active","Green"), status_dict.get("es_pipeline","Green"), body)
+        
+        email_user_list = to.split(",")
+        print(f"email_user_list : {email_user_list}")
+        """
+        for user in email_user_list:
+            print(user)
+            cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + "-c a@test.mail " + to
+            result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+            output, errors = result.communicate()
+            if output:
+                print(f"Send mail to user : {user}, output : {output}")
+            if errors:
+                print(errors)
+        """
+
+        # cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + "-c a@test.mail " + to
+        cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert [{env}]' " + to
         result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
         output, errors = result.communicate()
         if output:
-            print(f"Send mail to user : {user}, output : {output}")
+            print(f"Send mail output : {output}")
         if errors:
             print(errors)
-    """
-
-    # cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + "-c a@test.mail " + to
-    cmd=f"echo {body} | mailx -s 'Prometheus Monitoring Alert' " + to
-    result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-    output, errors = result.communicate()
-    if output:
-        print(f"Send mail output : {output}")
-    if errors:
-        print(errors)
+    except Exception as e:
+        logging.error(e)
 
 
 
