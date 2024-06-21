@@ -175,7 +175,7 @@ elastic:
 http://localhost:9200/_searchguard/api/internalusers/admin  (Header : 'Authorization' : 'Basic YWRtaW46YWRtaW4=')
 
 
--bash-4.2$  curl -XGET -u biadmin:Wh@Ask3dY0u https://tsgvm02392:9260
+-bash-4.2$  curl -XGET -u test:test https://localhost:9260
 {
   "name" : "test-node-1",
   "cluster_name" : "test-upgrade",
