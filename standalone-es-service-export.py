@@ -21,6 +21,8 @@ import copy
 import jaydebeapi
 import jpype
 import re
+from collections import defaultdict
+
 
 # logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -45,6 +47,8 @@ es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localh
 kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_connect_nodes_gauge_g = Gauge("kafka_connect_nodes_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_connect_listeners_gauge_g = Gauge("kafka_connect_listeners_metric", 'Metrics scraped from localhost', ["server_job", "host", "name", "running"])
+kafka_connect_health_gauge_g = Gauge("kafka_connect_health_metric", 'Metrics scraped from localhost', ["server_job"])
+kafka_isr_list_gauge_g = Gauge("kafka_isr_list_metric", 'Metrics scraped from localhost', ["server_job", "topic", "partition", "leader", "replicas", "isr"])
 zookeeper_nodes_gauge_g = Gauge("zookeeper_health_metric", 'Metrics scraped from localhost', ["server_job"])
 spark_nodes_gauge_g = Gauge("spark_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kibana_instance_gauge_g = Gauge("kibana_health_metric", 'Metrics scraped from localhost', ["server_job"])
@@ -155,6 +159,7 @@ class ProcessHandler():
     def __init__(self) -> None:
         pass
 
+    ''' get ProcessID'''
     def isProcessRunning(self, name):
         ''' Get PID with process name'''
         try:
@@ -163,6 +168,23 @@ class ProcessHandler():
             return True
         except subprocess.CalledProcessError:
             return False
+        
+    
+    ''' get command result'''
+    def get_run_cmd_Running(self, cmd):
+        ''' Get PID with process name'''
+        try:
+            logging.info("get_run_cmd_Running - {}".format(cmd))
+            call = subprocess.check_output("{}".format(cmd), shell=True)
+            output = call.decode("utf-8")
+            # logging.info("CMD - {}".format(output))
+            # logging.info(output.split("\n"))
+            
+            output = [element for element in output.split("\n") if len(element) > 0]
+
+            return output
+        except subprocess.CalledProcessError:
+            return None   
 
 
 def transform_prometheus_txt_to_Json(response):
@@ -203,7 +225,7 @@ def get_metrics_all_envs(monitoring_metrics):
             url_lists = v.split(",")
             # logging.info("url_lists : {}".format(url_lists))
             totalcount = 0
-            for each_host in url_lists:
+            for idx, each_host in enumerate(url_lists):
                 each_urls = each_host.split(":")
                 # logging.info("urls with port : {}".format(each_urls))
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -218,7 +240,7 @@ def get_metrics_all_envs(monitoring_metrics):
                     response_sub_dict.update({each_urls[0] + ":" + each_urls[1] : "FAIL"})
                     response_sub_dict.update({"GREEN_CNT" : totalcount})
                     ''' save failure node with a reason into saved_failure_dict'''
-                    saved_failure_dict.update({each_urls[0] : "[{}] ".format(k) + each_host + " Port closed"})
+                    saved_failure_dict.update({each_urls[0] : "[Node #{}-{}] ".format(idx+1, k) + each_host + " Port closed"})
                 sock.close()
             response_dict.update({k : response_sub_dict})
             
@@ -380,11 +402,9 @@ def get_metrics_all_envs(monitoring_metrics):
 
             # -- make a call to master node to get the information of activeapps
             resp = requests.get(url="http://{}:8080/json".format(master_node), timeout=5)
+            logging.info(f"get_spark_jobs - response {resp.status_code}")
             
             if not (resp.status_code == 200):
-                ''' add tracking logs and save failure node with a reason into saved_failure_dict'''
-                saved_failure_dict.update({node : "spark cluster - http://{}:8080/json API do not reachable".format(master_node)})
-                spark_nodes_gauge_g.labels(server_job=socket.gethostname()).set(0)
                 return None
             
             ''' expose metrics spark node health is active'''
@@ -399,6 +419,9 @@ def get_metrics_all_envs(monitoring_metrics):
             return None
 
         except Exception as e:
+            ''' add tracking logs and save failure node with a reason into saved_failure_dict'''
+            saved_failure_dict.update({node : "spark cluster - http://{}:8080/json API do not reachable".format(master_node)})
+            spark_nodes_gauge_g.labels(server_job=socket.gethostname()).set(0)
             logging.error(e)
 
 
@@ -424,25 +447,142 @@ def get_metrics_all_envs(monitoring_metrics):
             es_url_hosts_list = es_url_hosts.split(",")
             
             for each_es_host in es_url_hosts_list:
-                # -- make a call to node
-                resp = requests.get(url="http://{}/_cluster/health".format(each_es_host), timeout=5)
+
+                try:
+                    # -- make a call to node
+                    resp = requests.get(url="http://{}/_cluster/health".format(each_es_host), timeout=5)
+                    
+                    if not (resp.status_code == 200):
+                        ''' save failure node with a reason into saved_failure_dict'''
+                        # saved_failure_dict.update({each_es_host.split(":")[0] : each_es_host + " Port closed"})
+                        continue
+                    
+                    logging.info(f"activeES - {resp}, {resp.json()}")
+                    ''' log if one of ES nodes goes down'''
+                    if int(resp.json().get("unassigned_shards")) > 0:
+                        saved_failure_dict.update({socket.gethostname() : "[elasticsearch exception] The number of unassiged shards : {}".format(resp.json().get("unassigned_shards"))})
+                    return resp.json()
                 
-                if not (resp.status_code == 200):
-                    ''' save failure node with a reason into saved_failure_dict'''
-                    # saved_failure_dict.update({each_es_host.split(":")[0] : each_es_host + " Port closed"})
-                    continue
-                
-                logging.info(f"activeES - {resp}, {resp.json()}")
-                ''' log if one of ES nodes goes down'''
-                if int(resp.json().get("unassigned_shards")) > 0:
-                    saved_failure_dict.update({socket.gethostname() : "[elasticsearch exception] The number of unassiged shards : {}".format(resp.json().get("unassigned_shards"))})
-                return resp.json()
+                except Exception as e:
+                    pass
                 
             return None
 
         except Exception as e:
             logging.error(e)
 
+
+    def get_elasticsearch_audit_alert(monitoring_metrics):
+        ''' get nodes health/check the some metrics for delivering audit alert via email '''
+        ''' https://www.elastic.co/guide/en/elasticsearch/reference/current/cat-nodes.html'''
+
+        def get_float_number(s):
+            ''' get float/numbder from string'''
+            p = re.compile("\d*\.?\d+")
+            return float(''.join(p.findall(s)))
+
+        try:
+            es_url_hosts = monitoring_metrics.get("es_url", "")
+            logging.info(f"get_elasticsearch_audit_alert hosts - {es_url_hosts}")
+            es_url_hosts_list = es_url_hosts.split(",")
+            
+            for each_es_host in es_url_hosts_list:
+                try:
+                    # -- make a call to cluster for checking the disk space on all nodes in the cluster
+                    resp = requests.get(url="http://{}/_cat/nodes?format=json&h=name,ip,h,diskAvail".format(each_es_host), timeout=5)
+                    
+                    if not (resp.status_code == 200):
+                        ''' save failure node with a reason into saved_failure_dict'''
+                        # saved_failure_dict.update({each_es_host.split(":")[0] : each_es_host + " Port closed"})
+                        continue
+                    
+                    logging.info(f"get_elasticsearch_audit_alert - {resp}, {resp.json()}")
+
+                    for element_dict in resp.json():
+                        for k, v in element_dict.items():
+                            if k == "diskAvail":
+                                if get_float_number(v) < int(os.environ["ES_NODES_DISK_AVAILABLE_THRESHOLD"]):
+                                    ''' save failure node with a reason into saved_failure_dict'''
+                                    saved_failure_dict.update({each_es_host.split(":")[0] : "[{}]".format(element_dict.get("name","")) + " Disk availed : " + element_dict.get("diskAvail","")})
+                                    return True
+                    return False
+                    
+                except Exception as e:
+                    pass
+            
+        except Exception as e:
+            logging.error(e)
+
+
+    def get_kafka_ISR_lists():
+        ''' get kafka ISR lists'''
+        process_handler = ProcessHandler()
+        GET_KAFKA_ISR_LIST = os.environ["GET_KAFKA_ISR_LIST"]
+
+        # kafka_topic_isr = '/home/biadmin/monitoring/custom_export/kafka_2.11-0.11.0.0/bin/kafka-topics.sh --describe --zookeeper  {} --topic ELASTIC_PIPELINE_QUEUE'.format(ZOOKEEPER_URLS)
+        response = process_handler.get_run_cmd_Running(GET_KAFKA_ISR_LIST)
+
+        # logging.info(f"Kafka ISR : {response}")
+        ''' ['Topic:ELASTIC_PIPELINE_QUEUE\tPartitionCount:16\tReplicationFactor:3\tConfigs:', '\ '''
+
+        kafk_offsets_dict = defaultdict()
+        for idx in range(1, len(response)):
+            each_isr = [element for element in response[idx].split("\t") if len(element) > 0]
+            logging.info(each_isr)
+            kafk_offsets_dict.update({"{}_{}".format(each_isr[0],str(idx-1)) : each_isr})
+
+        logging.info(f"get_kafka_ISR_lists - {json.dumps(kafk_offsets_dict, indent=2)}")
+
+        return kafk_offsets_dict
+
+
+    def get_kafka_ISR_metrics():
+        ''' get Kafka Offset_ISR by using Kafka Job Interface API or Local Kafka cluster (It required to have a kafak folder to run the command)'''
+        try:
+            """
+            ''' Kafka ISR command result using local kafak cluster installed'''
+            saved_kafka_isr_lists_dict = get_kafka_ISR_lists()
+            '''
+                "Topic: ELASTIC_PIPELINE_QUEUE_12": [
+                    "Topic: ELASTIC_PIPELINE_QUEUE",
+                    "Partition: 11",
+                    "Leader: 2",
+                    "Replicas: 2,1,3",
+                    "Isr: 1,2"
+                ],
+
+            '''
+            """
+            # -- make a call to node
+            ZOOKEEPER_URLS = os.environ["ZOOKEEPER_URLS"]
+            KAFKA_JOB_INTERFACE_API = os.environ["KAFKA_JOB_INTERFACE_API"]
+            ''' request to Kafak Job interface api'''
+            resp = requests.get(url="http://{}/kafka/get_kafka_isr_list?broker_list={}".format(KAFKA_JOB_INTERFACE_API, ZOOKEEPER_URLS), timeout=5)
+                    
+            if not (resp.status_code == 200):
+                return None
+                    
+            logging.info(f"get_kafka_ISR_metrics from Kafka Job Interface API - {resp}, {resp.json()}")
+            saved_kafka_isr_lists_dict = resp.json()["results"]
+                
+            ''' If saved_kafka_isr_lists_dict is not None '''
+            ''' Sometimes we have an NoneType Object from the function called when Kafka cluster went down during the security patching'''
+            if saved_kafka_isr_lists_dict:
+                kafka_isr_dict = {}
+                for k, v in saved_kafka_isr_lists_dict.items():
+                    key = k.split(":")[1].lower().strip()
+                    kafka_isr_dict.update({key:{element.split(":")[0] : element.split(":")[1].strip() for element in v}})
+                    
+                    
+                    kafka_isr_list_gauge_g._metrics.clear()  
+                    logging.info(f"temp_kafka_isr_dict = {kafka_isr_dict}")  
+                    for k, v in kafka_isr_dict.items():
+                        logging.info(f"# k - {k}, # v - {v}")
+                        kafka_isr_list_gauge_g.labels(server_job=socket.gethostname(), topic=v.get("Topic",""), partition=v.get("Partition",""), leader=v.get("Leader",""), replicas=v.get("Replicas",""), isr=v.get("Isr","")).set(1)
+            
+
+        except Exception as e:
+            logging.error(e)
 
     def get_all_envs_status(all_env_status, value, types=None):
         ''' return all_envs_status status'''
@@ -458,23 +598,30 @@ def get_metrics_all_envs(monitoring_metrics):
                 else:
                     ''' red'''
                     all_env_status.append(-1)
-            elif types == 'logstash':
+            # elif types == 'logstash' :
+            #     if value == 1:
+            #        ''' green'''
+            #        all_env_status.append(1)
+            #     else:
+            #        ''' red'''
+            #        all_env_status.append(-1)
+            else:
                 if value == 1:
                    ''' green'''
                    all_env_status.append(1)
                 else:
                    ''' red'''
                    all_env_status.append(-1)
-            else:
-                if value == 1:
-                    ''' green'''
-                    all_env_status.append(1)
-                elif value == 0:
-                    ''' yellow'''
-                    all_env_status.append(0)
-                else:
-                    ''' red'''
-                    all_env_status.append(-1)
+            # else:
+            #     if value == 1:
+            #         ''' green'''
+            #         all_env_status.append(1)
+            #     elif value == 0:
+            #         ''' yellow'''
+            #         all_env_status.append(0)
+            #     else:
+            #         ''' red'''
+            #         all_env_status.append(-1)
             
             return all_env_status
 
@@ -486,8 +633,7 @@ def get_metrics_all_envs(monitoring_metrics):
         all_env_status_memory_list = []
 
         ''' clear logs'''
-        if not saved_failure_db_dict:
-            saved_failure_dict.clear()
+        saved_failure_dict.clear()
 
         #-- es node cluster health
         ''' http://localhost:9200/_cluster/health '''
@@ -514,6 +660,11 @@ def get_metrics_all_envs(monitoring_metrics):
             all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1)
         #--
 
+        ''' Check the number of metrics for audit alert'''
+        is_audit_alert_es = get_elasticsearch_audit_alert(monitoring_metrics)
+        if is_audit_alert_es:
+            all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list,0)
+
         ''' check the status of nodes on all kibana/kafka/connect except es nodes by using socket '''
         ''' The es cluster is excluded because it has already been checked in get_elasticsearch_health function'''
         monitoring_metrics_cp = copy.deepcopy(monitoring_metrics)
@@ -525,6 +676,7 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' Kafka/Kafka connect/Spark/Kibana'''
         response_dict = get_service_port_alive(monitoring_metrics_cp)
 
+        ''' Kafka Health'''
         kafka_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["kafka_url"]["GREEN_CNT"]))
         kafka_connect_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["kafka_connect_url"]["GREEN_CNT"]))
         zookeeper_nodes_gauge_g.labels(socket.gethostname()).set(int(response_dict["zookeeper_url"]["GREEN_CNT"]))
@@ -550,23 +702,9 @@ def get_metrics_all_envs(monitoring_metrics):
                 for k, v in each_job.items():
                     if k  == 'state':
                         if v.upper() == 'RUNNING':
-                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), 
-                                                      id=each_job.get('id',''),
-                                                      cores=each_job.get('cores',''), 
-                                                      memoryperslave=each_job.get('memoryperslave',''), 
-                                                      submitdate= each_job.get('submitdate',''),
-                                                      duration=duration, 
-                                                      activeapps=each_job.get('name','')
-                                                      ).set(1)
+                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job.get('id',''), cores=each_job.get('cores',''), memoryperslave=each_job.get('memoryperslave',''), submitdate= each_job.get('submitdate',''), duration=duration, activeapps=each_job.get('name','')).set(1)
                         else:
-                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), 
-                                                      id=each_job.get('id',''),
-                                                      cores=each_job.get('cores',''), 
-                                                      memoryperslave=each_job.get('memoryperslave',''), 
-                                                      submitdate= each_job.get('submitdate',''),
-                                                      duration=duration, 
-                                                      activeapps=each_job.get('name','')
-                                                      ).set(0)
+                            spark_jobs_gauge_g.labels(server_job=socket.gethostname(), id=each_job.get('id',''), cores=each_job.get('cores',''), memoryperslave=each_job.get('memoryperslave',''), submitdate= each_job.get('submitdate',''), duration=duration, activeapps=each_job.get('name','')).set(0)
                     
         else:
             ''' all envs update for current server active'''
@@ -607,19 +745,24 @@ def get_metrics_all_envs(monitoring_metrics):
         is_running_one_of_kafka_listner = False
         any_failure_listener = True
         host_list = []
+        ''' kafka Connect health'''
+        kafka_state_list = []
         if response_listeners: 
             for host in response_listeners.keys():
                 loop = 0
                 host_list.append(host)
                 for element in response_listeners[host]:
                     if 'error_code' in element:
+                        kafka_state_list.append(-1)
                         continue
                     else:
                         if len(element['tasks']) > 0:
                             if element['tasks'][0]['state'].upper() == 'RUNNING':
+                                kafka_state_list.append(1)
                                 is_running_one_of_kafka_listner = True
                                 kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(1)
                             else:
+                                kafka_state_list.append(-1)
                                 kafka_connect_listeners_gauge_g.labels(server_job=socket.gethostname(), host=host, name=element.get('name',''), running=element['tasks'][0]['state']).set(0)
                                 ''' add tracking logs'''
                                 if 'trace' in  element['tasks'][0]:
@@ -658,8 +801,22 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' if one of listener is not running with running status'''
         if not any_failure_listener:
             all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1, types='kafka_listner')
-                                
 
+
+        '''  kafka Connect health Set if listeners are working on all nodes with state of RUNNING'''
+        logging.info(f"Kafka_Health : {kafka_state_list}")
+        if list(set(kafka_state_list)) == [1]:
+            kafka_connect_health_gauge_g.labels(server_job=socket.gethostname()).set(3)
+        elif list(set(kafka_state_list)) == [-1] or len(kafka_state_list) < 1:
+            kafka_connect_health_gauge_g.labels(server_job=socket.gethostname()).set(0)
+        else:
+            kafka_connect_health_gauge_g.labels(server_job=socket.gethostname()).set(1)
+
+
+        ''' get Kafka ISR metrics'''
+        # get_kafka_ISR_metrics()
+
+      
         ''' pgrep -f logstash to get process id'''
         ''' set 1 if process id has value otherwise set 0'''
         # -- local instance based
@@ -672,11 +829,13 @@ def get_metrics_all_envs(monitoring_metrics):
         all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_url"]["GREEN_CNT"]), types='kafka')
         all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kafka_connect_url"]["GREEN_CNT"]), types='kafka')
         all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["zookeeper_url"]["GREEN_CNT"]), types='kafka')
-        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kibana_url"]["GREEN_CNT"]))
+        all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(response_dict["kibana_url"]["GREEN_CNT"]), types='kibana')
         all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, int(get_Process_Id()), types='logstash')
 
         logging.info(f"all_envs_status #All : {all_env_status_memory_list}")
 
+        ''' ----------------------------------------------------- '''
+        ''' Set Server Active Graph'''
         ''' set value for node instance '''
         global saved_status_dict
 
@@ -695,8 +854,10 @@ def get_metrics_all_envs(monitoring_metrics):
             all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='cluster').set(2)
             ''' update gloabl variable for alert email'''
             saved_status_dict.update({'server_active' : 'Yellow'})
-
+            
         ''' all envs update for current data pipeline active --> process in db_jobs_work function'''
+        ''' ----------------------------------------------------- '''
+
 
         ''' expose failure node with a reason'''
         logging.info(f"[metrtics] es_service_jobs_failure_gauge_g - {saved_failure_dict}")
@@ -792,6 +953,9 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             StartTime = datetime.datetime.now()
             db_transactin_time = 0.0
 
+            ''' clear saved_failure_db_dict '''
+            saved_failure_db_dict.clear()
+
             if db_http_host:
                 '''  retrieve records from DB interface REST API URL using requests library'''
                 logging.info("# HTTP Interface")
@@ -808,6 +972,13 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                 if not (resp.status_code == 200):
                     ''' clear table for db records if host not reachable'''
                     db_jobs_gauge_g._metrics.clear()
+                    ''' DB error '''
+                    logging.info(f"{resp.json()['message']}")
+                    all_envs_status_gauge_g.labels(server_job=socket.gethostname(), type='data_pipeline').set(2)
+                    ''' expose failure node with a reason'''
+                    # es_service_jobs_failure_gauge_g.labels(server_job=socket.gethostname(), reason="No 'ES_PIPELINE_UPLOAD_TEST_WM' Process").set(0)
+                    saved_failure_db_dict.update({'db-jobs' : resp.json()['message']})
+                    saved_status_dict.update({'es_pipeline' : 'Red'})
                     return None
                 
                 logging.info(f"db/process_table - {resp}")
@@ -820,9 +991,6 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
                 ''' This logic perform to connect to DB directly and retrieve records from processd table '''
                 logging.info("# DB Interface Directly")
                 result_json_value = database_object.excute_oracle_query(sql)
-
-            ''' clear saved_failure_db_dict '''
-            saved_failure_db_dict.clear()
 
             ''' DB processing time '''
             EndTime = datetime.datetime.now()
@@ -1040,11 +1208,14 @@ def send_mail(body, host, env, status_dict, to):
         grafana_dashboard_url = os.environ["GRAFANA_DASHBOARD_URL"]
         
         ''' remove special characters'''
-        # body = body.replace('(', "'('").replace(')', "')'")
-        # body = body.replace('\n\t', " ").replace('(', "").replace(')', "").replace('\n', " ")
-        # body = re.sub(r"[^\uAC00-\uD7A30-9a-zA-Z\s]", " ", body)
-        # body = cleanText(body)
+        '''
+        body = body.replace('(', "'('").replace(')', "')'")
+        body = body.replace('\n\t', " ").replace('(', "").replace(')', "").replace('\n', " ")
+        body = re.sub(r"[^\uAC00-\uD7A30-9a-zA-Z\s]", " ", body)
+        body = cleanText(body)
+        '''
         body = body.encode('utf-8')
+        ''' remove b first character'''
         logging.info(f"send_mail -> Mail Alert message : {body}")
     
         body = "Monitoring [ES Team Dashboard on export application]'\n\t' \
