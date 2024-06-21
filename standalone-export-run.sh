@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-JAVA_HOME='C:\Users\euiyoung.hwang\'
+JAVA_HOME='/home/biadmin/jdk1.8.0_151'
 PATH=$PATH:$JAVA_HOME
 export JAVA_HOME
 
@@ -22,6 +22,11 @@ fi
 
 # -- Export Variable
 export GRAFANA_DASHBOARD_URL="http://localhost:3000/d/adm08055cf3lsa/es-team-dashboard?orgId=1'&'from=now-5m'&'to=now'&'refresh=5s"
+export ZOOKEEPER_URLS="localhost:2181,localhost:2181,localhost:2181"
+export BROKER_LIST="localhost:9092,localhost:9092,localhost:9092"
+export GET_KAFKA_ISR_LIST="$SCRIPTDIR/kafka_2.11-0.11.0.0/bin/kafka-topics.sh --describe --zookeeper $ZOOKEEPER_URLS --topic ELASTIC_PIPELINE_QUEUE"
+export KAFKA_JOB_INTERFACE_API="localhost:8008"
+export ES_NODES_DISK_AVAILABLE_THRESHOLD="15"
 # -- 
 
 # -- standalone type
