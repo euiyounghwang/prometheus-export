@@ -249,6 +249,18 @@ http://localhost:9200/_searchguard/api/internalusers/admin  (Header : 'Authoriza
 }
 -bash-4.2$
 
+
+curl -X 'PATCH' \
+  'https://localhost:9260/_searchguard/api/internalusers' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Basic test=' \
+  -d '[ 
+  { 
+    "op": "add", "path": "/test", "value": { "password": "test", "backend_roles": ["admin"] } 
+  }
+]' | jq
+
 ```
 
 
