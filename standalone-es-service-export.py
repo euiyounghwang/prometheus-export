@@ -1048,6 +1048,7 @@ def db_jobs_work(interval, database_object, sql, db_http_host, db_url):
             
         except Exception as e:
             logging.error(e)
+            pass
         
         # time.sleep(interval)
         ''' update after five minutes'''
