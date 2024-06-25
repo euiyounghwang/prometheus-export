@@ -22,6 +22,10 @@ import jaydebeapi
 import jpype
 import re
 from collections import defaultdict
+from dotenv import load_dotenv
+
+''' pip install python-dotenv'''
+load_dotenv() # will search for .env file in local folder and load variables 
 
 
 # logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
@@ -441,6 +445,18 @@ def get_metrics_all_envs(monitoring_metrics):
     def get_elasticsearch_health(monitoring_metrics):
         ''' get cluster health '''
         ''' return health json if one of nodes in cluster is acitve'''
+
+        def get_header():
+            ''' get header for security pack'''
+            header =  {
+            'Content-type': 'application/json', 
+            'Authorization' : '{}'.format(os.getenv('BASIC_AUTH')),
+            'Connection': 'close'
+            }
+            
+            return header
+        
+
         try:
             es_url_hosts = monitoring_metrics.get("es_url", "")
             logging.info(f"get_elasticsearch_health hosts - {es_url_hosts}")
@@ -450,7 +466,8 @@ def get_metrics_all_envs(monitoring_metrics):
 
                 try:
                     # -- make a call to node
-                    resp = requests.get(url="http://{}/_cluster/health".format(each_es_host), timeout=5)
+                    ''' export es metrics from ES cluster with Search Guard'''
+                    resp = requests.get(url="{}://{}/_cluster/health".format(os.environ["ES_HOST_URL_PREFIX"], each_es_host), headers=get_header(), timeout=5, verify=False)
                     
                     if not (resp.status_code == 200):
                         ''' save failure node with a reason into saved_failure_dict'''
