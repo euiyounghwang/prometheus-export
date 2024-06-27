@@ -46,6 +46,7 @@ es_service_jobs_performance_gauge_g = Gauge("es_service_jobs_performance_running
 ''' gauge with dict type'''
 ''' type : cluster/data_pipeline'''
 all_envs_status_gauge_g = Gauge("all_envs_status_metric", 'Metrics scraped from localhost', ["server_job", "type"])
+nodes_diskspace_gauge_g = Gauge("node_disk_space_metric", 'Metrics scraped from localhost', ["server_job", "name", "ip", "disktotal", "diskused", "diskavail", "diskusedpercent"])
 es_nodes_gauge_g = Gauge("es_node_metric", 'Metrics scraped from localhost', ["server_job"])
 es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localhost', ["server_job"])
@@ -506,7 +507,7 @@ def get_metrics_all_envs(monitoring_metrics):
             for each_es_host in es_url_hosts_list:
                 try:
                     # -- make a call to cluster for checking the disk space on all nodes in the cluster
-                    resp = requests.get(url="http://{}/_cat/nodes?format=json&h=name,ip,h,diskAvail".format(each_es_host), timeout=5)
+                    resp = requests.get(url="http://{}/_cat/nodes?format=json&h=name,ip,h,diskTotal,diskUsed,diskAvail,diskUsedPercent".format(each_es_host), timeout=5)
                     
                     if not (resp.status_code == 200):
                         ''' save failure node with a reason into saved_failure_dict'''
@@ -515,6 +516,21 @@ def get_metrics_all_envs(monitoring_metrics):
                     
                     logging.info(f"get_elasticsearch_audit_alert - {resp}, {resp.json()}")
 
+                    ''' Saved Gauge metrics'''
+                    logging.info(f"# Metrics Check for ES Disk")
+                    nodes_diskspace_gauge_g._metrics.clear()
+                    for element_dict in resp.json():
+                        for k, v in element_dict.items():
+                            logging.info(f"# k - {k}, # v for ES - {v}")
+                            ''' disk usages is greater than 90%'''
+                            if float(element_dict.get("diskUsedPercent","-1")) >= (100-int(os.environ["ES_NODES_DISK_AVAILABLE_THRESHOLD"])):
+                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(0)
+                            else:
+                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
+                            
+
+                    logging.info(f"# Metrics condition check for ES Disk")
+                    ''' Disk Check'''
                     for element_dict in resp.json():
                         for k, v in element_dict.items():
                             if k == "diskAvail":
@@ -525,6 +541,7 @@ def get_metrics_all_envs(monitoring_metrics):
                     return False
                     
                 except Exception as e:
+                    logging.error(e)
                     pass
             
         except Exception as e:
@@ -680,7 +697,7 @@ def get_metrics_all_envs(monitoring_metrics):
         ''' Check the number of metrics for audit alert'''
         is_audit_alert_es = get_elasticsearch_audit_alert(monitoring_metrics)
         if is_audit_alert_es:
-            all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list,0)
+            all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list, 0)
 
         ''' check the status of nodes on all kibana/kafka/connect except es nodes by using socket '''
         ''' The es cluster is excluded because it has already been checked in get_elasticsearch_health function'''
