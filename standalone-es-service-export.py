@@ -22,7 +22,7 @@ import jaydebeapi
 import jpype
 import re
 from collections import defaultdict
-import paramiko
+# import paramiko
 import base64
 from dotenv import load_dotenv
 
@@ -413,6 +413,7 @@ def get_metrics_all_envs(monitoring_metrics):
             logging.info(f"get_spark_jobs - response {resp.status_code}")
             
             if not (resp.status_code == 200):
+                spark_nodes_gauge_g.labels(server_job=socket.gethostname()).set(0)
                 return None
             
             ''' expose metrics spark node health is active'''
@@ -424,12 +425,12 @@ def get_metrics_all_envs(monitoring_metrics):
             if resp_working_job:
                 logging.info(f"activeapps - {resp_working_job}")
                 return resp_working_job
-            return None
+            else:
+                saved_failure_dict.update({node : "spark cluster - http://{}:8080/json API do not reachable".format(master_node)})
 
         except Exception as e:
             ''' add tracking logs and save failure node with a reason into saved_failure_dict'''
             saved_failure_dict.update({node : "spark cluster - http://{}:8080/json API do not reachable".format(master_node)})
-            spark_nodes_gauge_g.labels(server_job=socket.gethostname()).set(0)
             logging.error(e)
 
 
@@ -531,9 +532,9 @@ def get_metrics_all_envs(monitoring_metrics):
                             nodes_free_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node", name=element_dict.get("name",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(element_dict.get("diskUsedPercent",""))
                             ''' disk usages is greater than 90%'''
                             if float(element_dict.get("diskUsedPercent","-1")) >= int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
-                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node", name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(0)
+                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node", name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskUsed",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(0)
                             else:
-                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node",name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
+                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node",name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskUsed",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
 
                             if k == "diskUsedPercent":
                                 logging.info(f"ES Disk Space : {get_float_number(v)}")
@@ -565,7 +566,8 @@ def get_metrics_all_envs(monitoring_metrics):
                 client = paramiko.client.SSHClient()
                 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 client.connect(host, username=username, password=base64.b64decode(password))
-                    
+                print(f"create new session ssh..")
+                        
                 ''' excute command line'''
                 _stdin, _stdout,_stderr = client.exec_command("df -h {}".format(path))
                 response = _stdout.read().decode()
@@ -594,6 +596,52 @@ def get_metrics_all_envs(monitoring_metrics):
                 logging.error(f"Failed : {host}")
             finally:
                 client.close()
+                print(f"close session ssh..")
+
+        
+        def socket_connection(host, path, host_number):
+            ''' gather metrics from Kafka each node'''
+
+            global disk_space_list
+            
+            # Create a connection to the server application on port 81
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect((host, 1234))
+            
+            try:
+                data = str.encode(path)
+                client_socket.sendall(data)
+
+                received = client_socket.recv(1024)
+                print(f"# socket client received.. {received}")
+                
+                disk_space_list = [element for element in str(received.decode('utf-8').split('\n')[1]).split(' ') if len(element) > 0]
+                # print('split#2 ', disk_space_list)
+                # logging.info(f"Success : {host}")
+
+                disk_space_dict = {}
+                ''' split#2  disk_space_list - >  ['/dev/mapper/software-Vsfw', '100G', '17G', '84G', '17%', '/apps'] '''
+                disk_space_dict.update({
+                        "host" : host, 
+                        "name" : "supplychain-logging-kafka-node-{}".format(host_number),
+                        "ip" : socket.gethostbyname(host),
+                        "diskTotal" : disk_space_list[1],
+                        "diskused" : disk_space_list[2],
+                        "diskAvail" : disk_space_list[3],
+                        "diskUsedPercent" : disk_space_list[4].replace('%',''),
+                        "folder" : disk_space_list[5]
+                    }
+                )
+
+                disk_space_memory_list.append(disk_space_dict)
+
+            except Exception as e:
+                logging.error(e)
+                pass
+            
+            finally:
+                print("Closing socket")
+                client_socket.close()
         
         try:
             kafka_url_hosts = monitoring_metrics.get("kafka_url", "")
@@ -604,7 +652,11 @@ def get_metrics_all_envs(monitoring_metrics):
             loop = 1
             for idx, each_server in enumerate(kafka_url_hosts_list):
                 logging.info(f"{idx+1} : {each_server}")
-                ssh_connection(str(each_server).split(":")[0].strip(), os.getenv("credentials_id"), os.getenv("credentials_pw"), "/apps/", loop)
+                try:
+                    # ssh_connection(str(each_server).split(":")[0].strip(), os.getenv("credentials_id"), os.getenv("credentials_pw"), "/apps/", loop)
+                    socket_connection(str(each_server).split(":")[0].strip(), "/apps/", loop)
+                except Exception as e:
+                    pass
                 loop +=1
             logging.info(f"disk space : {json.dumps(disk_space_memory_list, indent=2)}")
 
