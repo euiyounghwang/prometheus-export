@@ -58,7 +58,7 @@ def ssh_connection_test(host, username, password, path, host_number):
 if __name__ == "__main__":
     
     # print(os.getenv("credentials_id"))
-    server_list = ["tsgvm01080", "tsgvm01081", "tsgvm01082"]
+    server_list = ["localhost"]
     loop = 1
     for idx, each_server in enumerate(server_list):
         logging.info(f"{idx+1} : {each_server}")
