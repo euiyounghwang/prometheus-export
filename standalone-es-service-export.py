@@ -538,9 +538,9 @@ def get_metrics_all_envs(monitoring_metrics):
 
                             if k == "diskUsedPercent":
                                 logging.info(f"ES Disk Space : {get_float_number(v)}")
-                                if get_float_number(v) > int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
+                                if get_float_number(v) >= int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
                                     ''' save failure node with a reason into saved_failure_dict'''
-                                    saved_failure_dict.update({"{}_{}".format(each_es_host.split(":")[0], str(loop)) : "[{}]".format(element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
+                                    saved_failure_dict.update({"{}_{}".format(each_es_host.split(":")[0], str(loop)) : "[host : {}, name : {}]".format(each_es_host.split(":")[0], element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
                                     is_over_free_Disk_space = True
                                 loop += 1
                             
@@ -557,7 +557,9 @@ def get_metrics_all_envs(monitoring_metrics):
     disk_space_memory_list = []
     def get_kafka_disk_audit_alert(monitoring_metrics):
         ''' get kafka nodes' disk space for delivering audit alert via email '''
+        ''' du -hs */ | sort -n | head '''
         
+        """
         def ssh_connection(host, username, password, path, host_number):
             try:
 
@@ -597,7 +599,7 @@ def get_metrics_all_envs(monitoring_metrics):
             finally:
                 client.close()
                 print(f"close session ssh..")
-
+        """
         
         def socket_connection(host, path, host_number):
             ''' gather metrics from Kafka each node'''
@@ -675,9 +677,9 @@ def get_metrics_all_envs(monitoring_metrics):
 
                     if k == "diskUsedPercent":
                         logging.info(f"Kafka Disk Space : {get_float_number(v)}")
-                        if get_float_number(v) > int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
+                        if get_float_number(v) >= int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
                             ''' save failure node with a reason into saved_failure_dict'''
-                            saved_failure_dict.update({"{}_{}".format(element_dict.get("name",""), str(loop)) : "[{}]".format(element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
+                            saved_failure_dict.update({"{}_{}".format(element_dict.get("name",""), str(loop)) : "[host : {}, name : {}]".format(element_dict.get("host",""), element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
                             is_over_free_Disk_space = True
                             loop += 1
 
