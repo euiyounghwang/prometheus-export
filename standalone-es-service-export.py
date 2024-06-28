@@ -622,7 +622,7 @@ def get_metrics_all_envs(monitoring_metrics):
                         nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Kafka Node",name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
 
                     if k == "diskUsedPercent":
-                        logging.info(f"ES Disk Space : {get_float_number(v)}")
+                        logging.info(f"Kafka Disk Space : {get_float_number(v)}")
                         if get_float_number(v) > int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
                             ''' save failure node with a reason into saved_failure_dict'''
                             saved_failure_dict.update({"{}_{}".format(element_dict.get("name",""), str(loop)) : "[{}]".format(element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
