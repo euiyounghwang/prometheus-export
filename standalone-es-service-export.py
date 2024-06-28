@@ -22,6 +22,8 @@ import jaydebeapi
 import jpype
 import re
 from collections import defaultdict
+import paramiko
+import base64
 from dotenv import load_dotenv
 
 ''' pip install python-dotenv'''
@@ -46,7 +48,8 @@ es_service_jobs_performance_gauge_g = Gauge("es_service_jobs_performance_running
 ''' gauge with dict type'''
 ''' type : cluster/data_pipeline'''
 all_envs_status_gauge_g = Gauge("all_envs_status_metric", 'Metrics scraped from localhost', ["server_job", "type"])
-nodes_diskspace_gauge_g = Gauge("node_disk_space_metric", 'Metrics scraped from localhost', ["server_job", "name", "ip", "disktotal", "diskused", "diskavail", "diskusedpercent"])
+nodes_diskspace_gauge_g = Gauge("node_disk_space_metric", 'Metrics scraped from localhost', ["server_job", "category", "name", "ip", "disktotal", "diskused", "diskavail", "diskusedpercent"])
+nodes_free_diskspace_gauge_g = Gauge("node_free_disk_space_metric", 'Metrics scraped from localhost', ["server_job", "category", "name" ,"diskusedpercent"])
 es_nodes_gauge_g = Gauge("es_node_metric", 'Metrics scraped from localhost', ["server_job"])
 es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localhost', ["server_job"])
@@ -490,14 +493,15 @@ def get_metrics_all_envs(monitoring_metrics):
             logging.error(e)
 
 
-    def get_elasticsearch_audit_alert(monitoring_metrics):
+    def get_float_number(s):
+        ''' get float/numbder from string'''
+        p = re.compile("\d*\.?\d+")
+        return float(''.join(p.findall(s)))
+    
+
+    def get_elasticsearch_disk_audit_alert(monitoring_metrics):
         ''' get nodes health/check the some metrics for delivering audit alert via email '''
         ''' https://www.elastic.co/guide/en/elasticsearch/reference/current/cat-nodes.html'''
-
-        def get_float_number(s):
-            ''' get float/numbder from string'''
-            p = re.compile("\d*\.?\d+")
-            return float(''.join(p.findall(s)))
 
         try:
             es_url_hosts = monitoring_metrics.get("es_url", "")
@@ -514,35 +518,118 @@ def get_metrics_all_envs(monitoring_metrics):
                         # saved_failure_dict.update({each_es_host.split(":")[0] : each_es_host + " Port closed"})
                         continue
                     
-                    logging.info(f"get_elasticsearch_audit_alert - {resp}, {resp.json()}")
+                    logging.info(f"get_elasticsearch_disk_audit_alert - {resp}, {resp.json()}")
 
                     ''' Saved Gauge metrics'''
                     logging.info(f"# Metrics Check for ES Disk")
-                    nodes_diskspace_gauge_g._metrics.clear()
+                    loop = 1
+                    ''' expose this varible to Server Active'''
+                    is_over_free_Disk_space = False
                     for element_dict in resp.json():
                         for k, v in element_dict.items():
-                            logging.info(f"# k - {k}, # v for ES - {v}")
+                            # logging.info(f"# k - {k}, # v for ES - {v}")
+                            nodes_free_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node", name=element_dict.get("name",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(element_dict.get("diskUsedPercent",""))
                             ''' disk usages is greater than 90%'''
-                            if float(element_dict.get("diskUsedPercent","-1")) >= (100-int(os.environ["ES_NODES_DISK_AVAILABLE_THRESHOLD"])):
-                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(0)
+                            if float(element_dict.get("diskUsedPercent","-1")) >= int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
+                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node", name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(0)
                             else:
-                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
-                            
+                                nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node",name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
 
-                    logging.info(f"# Metrics condition check for ES Disk")
-                    ''' Disk Check'''
-                    for element_dict in resp.json():
-                        for k, v in element_dict.items():
-                            if k == "diskAvail":
-                                if get_float_number(v) < int(os.environ["ES_NODES_DISK_AVAILABLE_THRESHOLD"]):
+                            if k == "diskUsedPercent":
+                                logging.info(f"ES Disk Space : {get_float_number(v)}")
+                                if get_float_number(v) > int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
                                     ''' save failure node with a reason into saved_failure_dict'''
-                                    saved_failure_dict.update({each_es_host.split(":")[0] : "[{}]".format(element_dict.get("name","")) + " Disk availed : " + element_dict.get("diskAvail","")})
-                                    return True
-                    return False
+                                    saved_failure_dict.update({"{}_{}".format(each_es_host.split(":")[0], str(loop)) : "[{}]".format(element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
+                                    is_over_free_Disk_space = True
+                                loop += 1
+                            
+                    return is_over_free_Disk_space
                     
                 except Exception as e:
                     logging.error(e)
                     pass
+            
+        except Exception as e:
+            logging.error(e)
+
+
+    disk_space_memory_list = []
+    def get_kafka_disk_audit_alert(monitoring_metrics):
+        ''' get kafka nodes' disk space for delivering audit alert via email '''
+        
+        def ssh_connection(host, username, password, path, host_number):
+            try:
+
+                global disk_space_list
+                
+                client = paramiko.client.SSHClient()
+                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                client.connect(host, username=username, password=base64.b64decode(password))
+                    
+                ''' excute command line'''
+                _stdin, _stdout,_stderr = client.exec_command("df -h {}".format(path))
+                response = _stdout.read().decode()
+                # print("cmd : ", response, type(response))
+                # print('split#1 ', str(response.split('\n')[1]))
+                disk_space_list = [element for element in str(response.split('\n')[1]).split(' ') if len(element) > 0]
+                # print('split#2 ', disk_space_list)
+                # logging.info(f"Success : {host}")
+
+                disk_space_dict = {}
+                ''' split#2  disk_space_list - >  ['/dev/mapper/software-Vsfw', '100G', '17G', '84G', '17%', '/apps'] '''
+                disk_space_dict.update({
+                        "host" : host, 
+                        "name" : "supplychain-logging-kafka-node-{}".format(host_number),
+                        "diskTotal" : disk_space_list[1],
+                        "diskused" : disk_space_list[2],
+                        "diskAvail" : disk_space_list[3],
+                        "diskUsedPercent" : disk_space_list[4].replace('%',''),
+                        "folder" : disk_space_list[5]
+                    }
+                )
+
+                disk_space_memory_list.append(disk_space_dict)        
+                
+            except Exception as error:
+                logging.error(f"Failed : {host}")
+            finally:
+                client.close()
+        
+        try:
+            kafka_url_hosts = monitoring_metrics.get("kafka_url", "")
+            logging.info(f"get_kafka_disk_autdit_alert hosts - {kafka_url_hosts}")
+            kafka_url_hosts_list = kafka_url_hosts.split(",")
+            logging.info(f"kafka_url_hosts_list - {kafka_url_hosts_list}")
+
+            loop = 1
+            for idx, each_server in enumerate(kafka_url_hosts_list):
+                logging.info(f"{idx+1} : {each_server}")
+                ssh_connection(str(each_server).split(":")[0].strip(), os.getenv("credentials_id"), os.getenv("credentials_pw"), "/apps/", loop)
+                loop +=1
+            logging.info(f"disk space : {json.dumps(disk_space_memory_list, indent=2)}")
+
+            ''' expose this varible to Server Active'''
+            is_over_free_Disk_space = False
+            ''' expose metrics for each Kafka disk space'''
+            for element_dict in disk_space_memory_list:
+                for k, v in element_dict.items():
+                    # logging.info(f"# k - {k}, # v for ES - {v}")
+                    nodes_free_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Kafka Node", name=element_dict.get("name",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(element_dict.get("diskUsedPercent",""))
+                    ''' disk usages is greater than 90%'''
+                    if float(element_dict.get("diskUsedPercent","-1")) >= int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
+                        nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Kafka Node", name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(0)
+                    else:
+                        nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Kafka Node",name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
+
+                    if k == "diskUsedPercent":
+                        logging.info(f"ES Disk Space : {get_float_number(v)}")
+                        if get_float_number(v) > int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
+                            ''' save failure node with a reason into saved_failure_dict'''
+                            saved_failure_dict.update({"{}_{}".format(element_dict.get("name",""), str(loop)) : "[{}]".format(element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
+                            is_over_free_Disk_space = True
+                            loop += 1
+
+            return is_over_free_Disk_space
             
         except Exception as e:
             logging.error(e)
@@ -694,10 +781,20 @@ def get_metrics_all_envs(monitoring_metrics):
             all_env_status_memory_list = get_all_envs_status(all_env_status_memory_list, -1)
         #--
 
-        ''' Check the number of metrics for audit alert'''
-        is_audit_alert_es = get_elasticsearch_audit_alert(monitoring_metrics)
+        ''' Clear the disk space for ES through audit alert'''
+        nodes_diskspace_gauge_g._metrics.clear()
+        nodes_free_diskspace_gauge_g._metrics.clear()
+
+        ''' Check the disk space for ES through audit alert'''
+        is_audit_alert_es = get_elasticsearch_disk_audit_alert(monitoring_metrics)
         if is_audit_alert_es:
-            all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list, 0)
+            all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list, -1)
+
+        ''' Check the disk space for Kafka through audit alert'''
+        is_audit_alert_kafka = get_kafka_disk_audit_alert(monitoring_metrics)
+        if is_audit_alert_kafka:
+            all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list, -1)
+
 
         ''' check the status of nodes on all kibana/kafka/connect except es nodes by using socket '''
         ''' The es cluster is excluded because it has already been checked in get_elasticsearch_health function'''

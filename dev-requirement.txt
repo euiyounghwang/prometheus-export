@@ -8,3 +8,5 @@ prometheus-client==0.20.0
 pytz==2024.1
 requests==2.32.2
 urllib3==1.26.18
+python-dotenv==1.0.1
+paramiko==3.4.0
