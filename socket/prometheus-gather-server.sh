@@ -1,5 +1,5 @@
 #!/bin/sh
-KAFKA_METRICS_EXPORT_PATH=/home/devuser/monitoring/metrics_socket
+KAFKA_METRICS_EXPORT_PATH=/home/biadmin/monitoring/metrics_socket
 SERVICE_NAME=es-service-kafka-gather-service
 
 SCRIPTDIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
