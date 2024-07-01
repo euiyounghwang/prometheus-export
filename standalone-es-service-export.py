@@ -50,6 +50,7 @@ es_service_jobs_performance_gauge_g = Gauge("es_service_jobs_performance_running
 all_envs_status_gauge_g = Gauge("all_envs_status_metric", 'Metrics scraped from localhost', ["server_job", "type"])
 nodes_diskspace_gauge_g = Gauge("node_disk_space_metric", 'Metrics scraped from localhost', ["server_job", "category", "name", "ip", "disktotal", "diskused", "diskavail", "diskusedpercent"])
 nodes_free_diskspace_gauge_g = Gauge("node_free_disk_space_metric", 'Metrics scraped from localhost', ["server_job", "category", "name" ,"diskusedpercent"])
+nodes_max_disk_used_gauge_g = Gauge("node_disk_used_metric", 'Metrics scraped from localhost', ["server_job"])
 es_nodes_gauge_g = Gauge("es_node_metric", 'Metrics scraped from localhost', ["server_job"])
 es_nodes_health_gauge_g = Gauge("es_health_metric", 'Metrics scraped from localhost', ["server_job"])
 kafka_nodes_gauge_g = Gauge("kafka_health_metric", 'Metrics scraped from localhost', ["server_job"])
@@ -214,6 +215,8 @@ def transform_prometheus_txt_to_Json(response):
 
 ''' save failure nodes into dict'''
 saved_failure_dict = {}
+''' expose this metric to see maximu disk space among ES/Kafka nodes'''
+max_disk_used = 0
 
 def get_metrics_all_envs(monitoring_metrics):
     ''' get metrics from custom export for the health of kafka cluster'''
@@ -499,12 +502,14 @@ def get_metrics_all_envs(monitoring_metrics):
         p = re.compile("\d*\.?\d+")
         return float(''.join(p.findall(s)))
     
-
+    
     def get_elasticsearch_disk_audit_alert(monitoring_metrics):
         ''' get nodes health/check the some metrics for delivering audit alert via email '''
         ''' https://www.elastic.co/guide/en/elasticsearch/reference/current/cat-nodes.html'''
 
         try:
+            global max_disk_used
+
             es_url_hosts = monitoring_metrics.get("es_url", "")
             logging.info(f"get_elasticsearch_audit_alert hosts - {es_url_hosts}")
             es_url_hosts_list = es_url_hosts.split(",")
@@ -537,7 +542,9 @@ def get_metrics_all_envs(monitoring_metrics):
                                 nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Elastic Node",name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskUsed",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
 
                             if k == "diskUsedPercent":
-                                logging.info(f"ES Disk Space : {get_float_number(v)}")
+                                logging.info(f"ES Disk Used : {get_float_number(v)}")
+                                if max_disk_used < get_float_number(v):
+                                    max_disk_used = get_float_number(v)
                                 if get_float_number(v) >= int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
                                     ''' save failure node with a reason into saved_failure_dict'''
                                     saved_failure_dict.update({"{}_{}".format(each_es_host.split(":")[0], str(loop)) : "[host : {}, name : {}]".format(each_es_host.split(":")[0], element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
@@ -646,6 +653,9 @@ def get_metrics_all_envs(monitoring_metrics):
                 client_socket.close()
         
         try:
+
+            global max_disk_used
+
             kafka_url_hosts = monitoring_metrics.get("kafka_url", "")
             logging.info(f"get_kafka_disk_autdit_alert hosts - {kafka_url_hosts}")
             kafka_url_hosts_list = kafka_url_hosts.split(",")
@@ -676,7 +686,9 @@ def get_metrics_all_envs(monitoring_metrics):
                         nodes_diskspace_gauge_g.labels(server_job=socket.gethostname(), category="Kafka Node",name=element_dict.get("name",""), ip=element_dict.get("ip",""), disktotal=element_dict.get("diskTotal",""), diskused=element_dict.get("diskused",""), diskavail=element_dict.get("diskAvail",""), diskusedpercent=element_dict.get("diskUsedPercent","")+"%").set(1)
 
                     if k == "diskUsedPercent":
-                        logging.info(f"Kafka Disk Space : {get_float_number(v)}")
+                        logging.info(f"Kafka Disk Used : {get_float_number(v)}")
+                        if max_disk_used < get_float_number(v):
+                            max_disk_used = get_float_number(v)
                         if get_float_number(v) >= int(os.environ["NODES_DISK_AVAILABLE_THRESHOLD"]):
                             ''' save failure node with a reason into saved_failure_dict'''
                             saved_failure_dict.update({"{}_{}".format(element_dict.get("name",""), str(loop)) : "[host : {}, name : {}]".format(element_dict.get("host",""), element_dict.get("name","")) + " Disk Used : " + element_dict.get("diskUsedPercent","") + "%"})
@@ -848,6 +860,11 @@ def get_metrics_all_envs(monitoring_metrics):
         is_audit_alert_kafka = get_kafka_disk_audit_alert(monitoring_metrics)
         if is_audit_alert_kafka:
             all_env_status_memory_list == get_all_envs_status(all_env_status_memory_list, -1)
+
+        ''' export maximum disk used'''
+        logging.info(f"max_disk_used - {max_disk_used}")
+        nodes_max_disk_used_gauge_g._metrics.clear()
+        nodes_max_disk_used_gauge_g.labels(server_job=socket.gethostname()).set(float(max_disk_used))
 
 
         ''' check the status of nodes on all kibana/kafka/connect except es nodes by using socket '''
